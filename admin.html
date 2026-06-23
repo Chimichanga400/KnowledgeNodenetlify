@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>KnowledgeNode — AI Routing Admin</title>
+<style>
+  :root { --bg:#0d0f14; --card:#161a22; --line:#262c38; --txt:#e7ecf3; --mut:#8a93a6; --accent:#f0a500; --green:#34c77b; --red:#ff5d5d; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font-family:system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 2px; }
+  .sub { color:var(--mut); font-size:13px; margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:16px; }
+  label { display:block; font-size:12px; color:var(--mut); margin:0 0 6px; text-transform:uppercase; letter-spacing:.04em; }
+  input, select { width:100%; background:#0f131a; border:1px solid var(--line); color:var(--txt); border-radius:8px; padding:10px 12px; font-size:14px; }
+  button { background:var(--accent); color:#000; border:none; border-radius:8px; padding:11px 16px; font-size:14px; font-weight:700; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--txt); border:1px solid var(--line); font-weight:500; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .pill { font-family:ui-monospace,monospace; font-size:12px; background:#0f131a; border:1px solid var(--line); border-radius:99px; padding:4px 10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; font-size:11px; text-transform:uppercase; }
+  tr.sel { background:rgba(240,165,0,.08); }
+  .msg { font-family:ui-monospace,monospace; font-size:12px; margin-top:10px; min-height:16px; }
+  .warn { background:rgba(255,93,93,.1); border:1px solid rgba(255,93,93,.35); color:#ffb4b4; border-radius:8px; padding:10px 12px; font-size:12px; margin-bottom:14px; }
+  .ok { color:var(--green); } .bad { color:var(--red); } .mut { color:var(--mut); }
+  a.choose { color:var(--accent); cursor:pointer; text-decoration:underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⬡ AI Routing</h1>
+  <p class="sub">Switch the model the app uses — instantly, without a redeploy or app update.</p>
+
+  <!-- Login -->
+  <div class="card" id="login">
+    <label>Admin token</label>
+    <div class="row">
+      <input id="token" type="password" placeholder="ADMIN_TOKEN" autocomplete="off" style="flex:1;min-width:200px;"/>
+      <button id="loginBtn">Unlock</button>
+    </div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+
+  <!-- Panel -->
+  <div id="panel" style="display:none;">
+    <div class="warn" id="kvWarn" style="display:none;">⚠ No KV store configured — changes won't persist or reach the live proxy. Set <b>UPSTASH_REDIS_REST_URL</b> + <b>UPSTASH_REDIS_REST_TOKEN</b>.</div>
+
+    <div class="card">
+      <label>Currently serving</label>
+      <div class="row">
+        <span class="pill" id="curProvider">—</span>
+        <span class="pill" id="curModel">—</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <label>Pick a model</label>
+      <table id="presets"><thead><tr><th>Model</th><th>Provider</th><th>Cost</th><th></th></tr></thead><tbody></tbody></table>
+      <div style="margin-top:14px;">
+        <label>Or set manually</label>
+        <div class="row">
+          <select id="provider" style="max-width:160px;">
+            <option value="anthropic">anthropic</option>
+            <option value="openrouter">openrouter</option>
+          </select>
+          <input id="model" placeholder="model id (e.g. google/gemini-2.5-flash)" style="flex:1;min-width:220px;"/>
+        </div>
+      </div>
+      <div class="row" style="margin-top:14px;">
+        <button id="testBtn" class="ghost">Test</button>
+        <button id="saveBtn">Save &amp; switch</button>
+        <span class="mut" style="font-size:12px;">Tip: use a cheap, vision-capable model for OCR-heavy use.</span>
+      </div>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var BASES = ['/api/admin-config', '/.netlify/functions/admin-config'];
+  var base = null, token = '';
+
+  function el(id){ return document.getElementById(id); }
+  function setMsg(id, text, cls){ var m=el(id); m.textContent=text; m.className='msg'+(cls?(' '+cls):''); }
+
+  async function call(method, body){
+    var bodyStr = body ? JSON.stringify(body) : undefined;
+    var tries = base ? [base] : BASES;
+    var lastErr;
+    for (var i=0;i<tries.length;i++){
+      try {
+        var res = await fetch(tries[i], { method:method, headers:{ 'Content-Type':'application/json', 'x-admin-token':token }, body:bodyStr });
+        if (res.status===404) { lastErr='404'; continue; }
+        base = tries[i];
+        var data = await res.json().catch(function(){return {};});
+        return { status:res.status, data:data };
+      } catch(e){ lastErr = e && e.message; }
+    }
+    throw new Error(lastErr || 'network error');
+  }
+
+  function renderPresets(presets, cur){
+    var tb = el('presets').querySelector('tbody');
+    tb.innerHTML = '';
+    presets.forEach(function(p){
+      var tr = document.createElement('tr');
+      if (p.provider===cur.provider && p.model===cur.model) tr.className='sel';
+      tr.innerHTML = '<td>'+esc(p.label)+'<div class="mut" style="font-family:ui-monospace,monospace;font-size:11px;">'+esc(p.model)+'</div></td>'
+        + '<td><span class="pill">'+esc(p.provider)+'</span></td>'
+        + '<td class="mut">'+esc(p.cost||'')+'</td>'
+        + '<td><a class="choose">choose</a></td>';
+      tr.querySelector('.choose').addEventListener('click', function(){
+        el('provider').value = p.provider; el('model').value = p.model;
+        setMsg('msg','Selected '+p.model+' — press Save & switch to apply.','mut');
+      });
+      tb.appendChild(tr);
+    });
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+
+  async function load(){
+    var r = await call('GET');
+    if (r.status===401){ setMsg('loginMsg','Invalid token.','bad'); return false; }
+    if (r.status===503){ setMsg('loginMsg','Admin is disabled — set ADMIN_TOKEN on the server.','bad'); return false; }
+    var d = r.data;
+    el('login').style.display='none'; el('panel').style.display='block';
+    el('kvWarn').style.display = d.kvEnabled ? 'none' : 'block';
+    el('curProvider').textContent = d.config.provider; el('curModel').textContent = d.config.model;
+    el('provider').value = d.config.provider; el('model').value = d.config.model;
+    renderPresets(d.presets||[], d.config);
+    return true;
+  }
+
+  el('loginBtn').addEventListener('click', async function(){
+    token = el('token').value.trim();
+    if (!token){ setMsg('loginMsg','Enter the token.','bad'); return; }
+    try { sessionStorage.setItem('kn_admin_token', token); } catch(e){}
+    setMsg('loginMsg','Checking…','mut');
+    try { await load(); } catch(e){ setMsg('loginMsg','Error: '+e.message,'bad'); }
+  });
+
+  el('saveBtn').addEventListener('click', async function(){
+    var provider = el('provider').value, model = el('model').value.trim();
+    if (!model){ setMsg('msg','Enter a model id.','bad'); return; }
+    el('saveBtn').disabled = true; setMsg('msg','Saving…','mut');
+    try {
+      var r = await call('POST', { provider:provider, model:model });
+      if (r.status===200 && r.data.config){
+        el('curProvider').textContent = r.data.config.provider;
+        el('curModel').textContent = r.data.config.model;
+        setMsg('msg','✓ Now serving '+r.data.config.model,'ok');
+        renderPresets((await call('GET')).data.presets||[], r.data.config);
+      } else { setMsg('msg', (r.data.error && r.data.error.message) || 'Save failed','bad'); }
+    } catch(e){ setMsg('msg','Error: '+e.message,'bad'); }
+    el('saveBtn').disabled = false;
+  });
+
+  el('testBtn').addEventListener('click', async function(){
+    var provider = el('provider').value, model = el('model').value.trim();
+    if (!model){ setMsg('msg','Enter a model id to test.','bad'); return; }
+    el('testBtn').disabled = true; setMsg('msg','Testing '+model+'…','mut');
+    try {
+      var r = await call('POST', { action:'test', provider:provider, model:model });
+      if (r.data.ok) setMsg('msg','✓ '+model+' reachable ('+r.data.ms+'ms)','ok');
+      else setMsg('msg','✗ '+(r.data.error || ('upstream '+r.data.status))+(r.data.body?(' — '+r.data.body):''),'bad');
+    } catch(e){ setMsg('msg','Error: '+e.message,'bad'); }
+    el('testBtn').disabled = false;
+  });
+
+  // auto-login if a token is remembered this session
+  try { var t = sessionStorage.getItem('kn_admin_token'); if (t){ token=t; el('token').value=t; load().catch(function(){}); } } catch(e){}
+})();
+</script>
+</body>
+</html>

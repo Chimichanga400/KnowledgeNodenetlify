@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <!-- Content Security Policy enforced INSIDE the app (the Android WebView does not
+       see the Netlify/Vercel HTTP headers, so this meta tag is what protects the
+       shipped app). 'unsafe-inline' is needed for the app's inline scripts/onclick
+       handlers and 'unsafe-eval' for the in-browser code sandbox (BlockEngine runs
+       user JS via Function()); removing those is future hardening (externalise inline
+       handlers + drop the runnable-code feature). object-src/base-uri are locked down
+       and connect-src bounds where data can be sent. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob: data: https://openrouter.ai https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://tessdata.projectnaptha.com; worker-src 'self' blob: https://cdn.jsdelivr.net; object-src 'none'; base-uri 'none'"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+  <meta name="theme-color" content="#f0a500"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="KnowledgeNode"/>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icons/icon.svg"/>
+  <title>KnowledgeNode</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Merriweather:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="css/main.css?v=1781361500"/>
+  <link rel="stylesheet" href="css/components.css?v=1781361500"/>
+  <link rel="stylesheet" href="css/print.css" media="print"/>
+</head>
+<body>
+<!-- DIAGNOSTIC: shows any JS error on screen (mobile has no console). Remove once stable. -->
+<div id="kn-error-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:999999;background:#b00020;color:#fff;font-family:monospace;font-size:12px;padding:10px 14px;max-height:50vh;overflow:auto;white-space:pre-wrap;box-shadow:0 2px 12px rgba(0,0,0,.5);"></div>
+<script>
+(function(){
+  var banner = document.getElementById('kn-error-banner');
+  function show(msg){
+    if(!banner) return;
+    banner.style.display = 'block';
+    banner.textContent += msg + '\n';
+  }
+  window.addEventListener('error', function(e){
+    show('JS ERROR: ' + (e.message||'') + '  @ ' + (e.filename||'').split('/').pop() + ':' + (e.lineno||'?'));
+  });
+  window.addEventListener('unhandledrejection', function(e){
+    show('PROMISE REJECT: ' + (e.reason && (e.reason.message||e.reason) || 'unknown'));
+  });
+  // Confirm scripts are running at all
+  window.__knBoot = [];
+  window.__knMark = function(m){ window.__knBoot.push(m); };
+})();
+</script>
+<div id="app">
+
+  <!-- ═══ SIDEBAR — desktop only ═══ -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <div class="logo-mark">K</div>
+        <span class="logo-text">KnowledgeNode</span>
+      </div>
+      <button class="sidebar-toggle" id="sidebar-toggle">◀</button>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="upload">   <span class="nav-icon">↑</span> <span class="nav-label">Add Notes</span></button>
+      <button class="nav-item" data-view="studyplan">       <span class="nav-icon">📅</span><span class="nav-label">Study Plan</span></button>
+      <button class="nav-item" data-view="guided">          <span class="nav-icon">▶</span> <span class="nav-label">Study Session</span></button>
+      <button class="nav-item" data-view="library">         <span class="nav-icon">⊞</span> <span class="nav-label">Library</span></button>
+      <button class="nav-item" data-view="review">          <span class="nav-icon">↺</span> <span class="nav-label">Review</span></button>
+      <button class="nav-item" data-view="dashboard">       <span class="nav-icon">◉</span> <span class="nav-label">Progress</span></button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button id="ai-director-btn" class="ai-director-btn" title="Let the AI evaluate you and reshape your nodes, note methods and study method">
+        <span class="aidir-btn-orb">⬡</span><span>Let AI take the wheel</span>
+      </button>
+      <div class="stats-grid">
+        <div class="stat-cell"><span class="stat-val" id="stat-nodes">0</span><span class="stat-key">Nodes</span></div>
+        <div class="stat-cell"><span class="stat-val" id="stat-mastery">0%</span><span class="stat-key">Mastery</span></div>
+        <div class="stat-cell"><span class="stat-val" id="stat-due">0</span><span class="stat-key">Due</span></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+        <button class="ai-settings-btn" id="ai-settings-sidebar-btn" style="flex:1;"><span>⚙</span><span>Settings</span></button>
+        <button data-theme-toggle style="width:36px;height:36px;background:transparent;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-muted);font-size:15px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Toggle theme">☀</button>
+        <button id="start-timer-btn" style="width:36px;height:36px;background:transparent;border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-muted);font-size:15px;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;flex-shrink:0;" title="Start study session">⏱</button>
+      </div>
+      <div style="text-align:center;margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">
+        <span class="streak-fire">📅</span> <span class="streak-count">0</span>d · <button onclick="KeyboardShortcuts.showHelp()" style="background:transparent;border:none;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;">? keys</button> · <button onclick="Onboarding.showTour()" style="background:transparent;border:none;color:var(--text-muted);font-family:var(--font-mono);font-size:11px;cursor:pointer;">how it works</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN ═══ -->
+  <main id="main-content" class="main-content">
+
+    <!-- UPLOAD -->
+    <section id="view-upload" class="view active">
+      <div class="view-header">
+        <h1 class="view-title" id="upload-view-title">Upload Content</h1>
+        <p class="view-subtitle" id="upload-view-subtitle">Add your notes or files, then choose how to import them.</p>
+      </div>
+      <div id="append-badge-container"></div>
+      <div class="upload-zone" id="upload-zone">
+        <div class="upload-inner">
+          <span class="upload-icon">⬡</span>
+          <p class="upload-label">Drop files here or <label class="upload-link" for="file-input">browse</label></p>
+          <p class="upload-hint">Images · PDF · Word (.docx) · Excel (.xlsx) · Text / CSV</p>
+          <div style="margin-top:16px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button id="scan-camera-btn" class="btn-secondary" style="font-size:12px;padding:8px 16px;" onclick="event.stopPropagation()">📷 Scan / Camera</button>
+            <button id="manual-text-btn" class="btn-secondary" style="font-size:12px;padding:8px 16px;" onclick="event.stopPropagation()">✏ Type Notes</button>
+            <button id="create-empty-node-btn" class="btn-secondary" style="font-size:12px;padding:8px 16px;" onclick="event.stopPropagation()">⬡ New Empty Node</button>
+            <button id="exam-paper-btn" class="btn-secondary" style="font-size:12px;padding:8px 16px;border-color:var(--accent-dim);color:var(--accent);" onclick="event.stopPropagation()">📝 Past Exam Paper</button>
+            <button id="bulk-import-btn" class="btn-secondary" style="font-size:12px;padding:8px 16px;border-color:var(--green);color:var(--green);" onclick="event.stopPropagation()">📚 Bulk Import (40+ photos)</button>
+            <input type="file" id="bulk-import-input" accept="image/*" multiple hidden/>
+
+          </div>
+          <input type="file" id="file-input" accept="image/*,.pdf,.docx,.doc,.xlsx,.xls,.txt,.csv,.md" multiple hidden/>
+        </div>
+      </div>
+      <div id="upload-preview" class="upload-preview hidden"></div>
+      <div id="upload-config" class="upload-config hidden">
+        <div class="config-row"><label class="config-label">Subject / Topic</label><input type="text" id="node-subject" class="config-input" placeholder="e.g. Income Tax Returns"/></div>
+        <div class="config-row"><label class="config-label">Chapter / Module</label><input type="text" id="node-chapter" class="config-input" placeholder="e.g. Module 1"/></div>
+        <div id="existing-modules-hint" class="existing-modules-hint hidden"></div>
+
+        <!-- Best practice tip -->
+        <div style="background:var(--accent-soft);border:1px solid var(--accent-dim);border-radius:var(--radius-md);padding:11px 14px;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start;">
+          <span style="font-size:16px;flex-shrink:0;margin-top:1px;">💡</span>
+          <div>
+            <div style="font-family:var(--font-ui);font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:3px;">One node = one topic, not one module</div>
+            <div style="font-family:var(--font-body);font-size:12px;color:var(--text-secondary);line-height:1.55;">
+              For best results, scan <strong>one section at a time</strong> — e.g. "M1.1 - Gross Income" as its own node, "M1.2 - Deductions" as another.
+              This gives you focused questions, accurate mastery tracking, and better AI explanations per topic.
+              <span style="color:var(--text-muted);"> Aim for 3–5 pages per node.</span>
+            </div>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;">
+          <div style="padding:18px 20px;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);">⬡ AI Controlled Import</span><span style="font-family:var(--font-mono);font-size:9px;font-weight:700;background:var(--accent);color:#000;padding:2px 7px;border-radius:10px;letter-spacing:.05em;">AI</span></div><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">AI reads, structures, and generates study questions from your content.</div></div>
+              <button id="process-ai-btn" class="btn-primary" style="flex-shrink:0;">Generate Node</button>
+            </div>
+            <div class="config-row" style="margin-top:12px;"><label class="config-label">Detail Level</label><select id="node-detail" class="config-select"><option value="standard">Standard — thorough breakdown</option><option value="quick">Quick — key points only</option></select></div>
+            <div class="config-row" style="margin-top:12px;">
+              <label class="config-label">Note-Taking Method</label>
+              <div id="template-picker-container"></div>
+            </div>
+          </div>
+          <div style="padding:18px 20px;background:var(--bg-raised);">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+              <div><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-family:var(--font-display);font-size:13px;font-weight:700;color:var(--text-primary);">📋 Plain Import</span><span style="font-family:var(--font-mono);font-size:9px;font-weight:700;background:var(--bg-raised);color:var(--text-muted);padding:2px 7px;border-radius:10px;border:1px solid var(--border);letter-spacing:.05em;">NO AI</span></div><div style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">Saves your content exactly as typed — no processing, instant save.</div></div>
+              <button id="process-plain-btn" class="btn-secondary" style="flex-shrink:0;">Import Notes</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Manual text entry panel -->
+      <div id="manual-text-panel" class="upload-config hidden" style="margin-bottom:16px;">
+        <div class="config-row">
+          <label class="config-label">Type or paste your notes</label>
+          <textarea id="manual-text-input" class="config-input" rows="10"
+            placeholder="Type your notes here… paste from textbook, type key points, write summaries.&#10;&#10;You can also paste copied text from any source."
+            style="resize:vertical;min-height:200px;font-family:var(--font-body);font-size:14px;line-height:1.7;touch-action:pan-y;"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <button id="manual-text-confirm-btn" class="btn-primary">Use This Text</button>
+          <button id="manual-text-cancel-btn" class="btn-secondary">Cancel</button>
+          <span style="font-family:var(--font-mono);font-size:11px;color:var(--text-muted);" id="manual-word-count">0 words</span>
+        </div>
+      </div>
+
+      <div id="processing-status" class="processing-status hidden">
+        <div class="processing-animation"><span class="kn-hex-wrap" style="width:60px;height:60px;"><svg viewBox="0 0 100 100" width="60" height="60" style="overflow:visible;"><polygon class="kn-hex-track" points="50,4 89.8,27 89.8,73 50,96 10.2,73 10.2,27"/><polygon class="kn-hex-core" points="50,22 74.2,36 74.2,64 50,78 25.8,64 25.8,36"/><polygon class="kn-hex-trace" points="50,4 89.8,27 89.8,73 50,96 10.2,73 10.2,27" pathLength="100"/></svg></span></div>
+        <p class="processing-label" id="processing-label">Processing…</p>
+        <div class="processing-steps">
+          <div class="proc-step" id="pstep-1">① Extract</div>
+          <div class="proc-step" id="pstep-2">② Structure</div>
+          <div class="proc-step" id="pstep-3">③ Questions</div>
+          <div class="proc-step" id="pstep-4">④ Build</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- GUIDED -->
+    <section id="view-guided" class="view">
+      <div class="view-header" id="guided-page-header"><h1 class="view-title">Study Session</h1><p class="view-subtitle">AI-guided step-by-step learning. Adapts to your subject and progress.</p></div>
+      <div id="guided-empty" class="empty-state"><span class="empty-icon">▶</span><p>Upload content to begin.</p></div>
+      <div id="guided-container" class="guided-container hidden">
+        <div class="guided-progress-bar"><div class="progress-track"><div class="progress-fill" id="guided-progress-fill"></div></div><span class="progress-label" id="guided-progress-label"></span></div>
+        <div class="guided-node-header"><div class="node-badge" id="guided-node-badge">Node</div><h2 class="guided-node-title" id="guided-node-title"></h2><div class="node-meta" id="guided-node-meta"></div></div>
+        <div class="guided-steps">
+          <div class="step-tabs" id="step-tabs"></div>
+          <div class="step-content" id="step-content"></div>
+        </div>
+        <div class="guided-nav"><button class="btn-secondary" id="guided-prev">← Prev</button><button class="btn-primary" id="guided-next">Next →</button></div>
+      </div>
+    </section>
+
+    <!-- LIBRARY -->
+    <section id="view-library" class="view">
+      <div class="view-header"><h1 class="view-title">Library</h1><p class="view-subtitle">All your nodes. Tap to explore.</p></div>
+      <div class="library-toolbar">
+        <input type="text" id="library-search" class="search-input" placeholder="Search…"/>
+        <select id="library-filter" class="config-select" style="width:auto;min-width:120px;"><option value="all">All Subjects</option></select>
+        <button class="btn-secondary" id="export-all-btn">⎙ Export</button>
+      </div>
+      <div id="library-empty" class="empty-state"><span class="empty-icon">⊞</span><p>Upload content to get started.</p></div>
+      <div id="library-grid" class="library-grid"></div>
+    </section>
+
+    <!-- NODE DETAIL — full screen on mobile, no competing sidebar -->
+    <section id="view-node-detail" class="view node-detail-view">
+      <div class="detail-topbar">
+        <button class="btn-ghost" id="detail-back">← Library</button>
+        <div class="detail-actions">
+          <button class="btn-secondary detail-action-btn" id="detail-learn-btn" title="Learn">🎓</button>
+          <button class="btn-secondary detail-action-btn" id="detail-export-btn">⎙</button>
+          <button class="btn-secondary detail-action-btn" id="detail-print-btn">🖨</button>
+        </div>
+      </div>
+      <!-- Tab bar instead of side panel on mobile -->
+      <div class="detail-tabs-bar">
+        <button class="detail-tab-btn active" data-section="notes">📋 Notes</button>
+        <button class="detail-tab-btn" data-section="questions">❓ Questions</button>
+        <button class="detail-tab-btn" data-section="examples">💡 Examples</button>
+        <button class="detail-tab-btn" data-section="mastery">📊 Mastery</button>
+      </div>
+      <div class="detail-body" id="detail-body"></div>
+    </section>
+
+    <!-- REVIEW -->
+    <section id="view-review" class="view">
+      <div class="view-header"><h1 class="view-title">Review</h1><p class="view-subtitle">Spaced repetition — filter by subject or chapter.</p></div>
+      <div id="review-empty" class="empty-state-v2" style="display:none;">
+        <div class="empty-state-icon">↺</div>
+        <h3 class="empty-state-title">No cards to review yet</h3>
+        <p class="empty-state-body">Upload your notes and the app will generate questions automatically. Cards are scheduled using spaced repetition — easy ones fade, hard ones resurface.</p>
+        <button class="btn-primary empty-state-cta" onclick="App.navigateTo('upload')">↑ Upload your first topic</button>
+      </div>
+      <div id="review-filter-panel"></div>
+      <div id="review-container" class="review-container hidden">
+        <div class="review-header"><div class="review-counter" id="review-counter">Card 1 of 8</div><div class="review-node-tag" id="review-node-tag"></div></div>
+        <div class="flashcard">
+          <div class="flashcard-inner">
+            <div class="flashcard-front">
+              <p class="card-type-label" id="card-type-label">Recall</p>
+              <p class="card-question" id="card-question"></p>
+              <div class="review-front-actions">
+                <button class="btn-primary" id="reveal-btn">Reveal Answer</button>
+                <button class="btn-ghost" id="skip-btn">Skip for now</button>
+              </div>
+            </div>
+            <div class="flashcard-back hidden" id="flashcard-back">
+              <p class="card-answer" id="card-answer"></p>
+              <p class="rating-prompt">How well did you know this?</p>
+              <div class="rating-btns">
+                <button class="rating-btn rating-1" data-rating="1">Again</button>
+                <button class="rating-btn rating-2" data-rating="2">Hard</button>
+                <button class="rating-btn rating-3" data-rating="3">Good</button>
+                <button class="rating-btn rating-4" data-rating="4">Easy</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="review-complete" class="review-complete hidden">
+        <div class="complete-icon">✓</div><h2>Session Complete!</h2>
+        <p id="review-complete-stats"></p>
+        <button class="btn-primary" id="review-again-btn">Review Again</button>
+      </div>
+    </section>
+
+    <!-- DASHBOARD (Progress) -->
+    <section id="view-dashboard" class="view">
+      <div class="view-header"><h1 class="view-title">Progress</h1><p class="view-subtitle">Streaks, mastery, and today's study plan.</p></div>
+      <div id="dashboard-body"></div>
+    </section>
+
+    <!-- STUDY PLAN -->
+    <section id="view-studyplan" class="view">
+      <div class="view-header">
+        <h1 class="view-title">Study Plan</h1>
+        <p class="view-subtitle">Daily schedule, competency tests, and progress tracking.</p>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;">
+          <button class="btn-primary" id="new-plan-header-btn">+ Create Study Plan</button>
+          <button class="btn-secondary" onclick="App.navigateTo('upload')" style="font-size:13px;">↑ Add Notes First</button>
+        </div>
+      </div>
+      <div id="studyplan-body"></div>
+    </section>
+
+    <section id="view-competency" class="view">
+      <div class="view-header">
+        <button class="btn-ghost" id="competency-back" style="margin-bottom:10px;">← Study Plan</button>
+        <h1 class="view-title">Competency Test</h1>
+        <p class="view-subtitle">Check where you stand across a subject — report card, timed quiz, or AI exam.</p>
+      </div>
+      <div id="competency-body"></div>
+    </section>
+
+  </main>
+</div>
+
+<!-- ═══ MOBILE BOTTOM NAV — 5 items max ═══ -->
+<nav class="mobile-nav" id="mobile-nav">
+  <button class="mobile-nav-btn active" data-view="guided">   <span class="mnav-icon">▶</span><span class="mnav-label">Study</span></button>
+  <button class="mobile-nav-btn" data-view="review">          <span class="mnav-icon">↺</span><span class="mnav-label">Review</span></button>
+  <button class="mobile-nav-btn" data-view="library">         <span class="mnav-icon">⊞</span><span class="mnav-label">Library</span></button>
+  <button class="mobile-nav-btn" data-view="upload">          <span class="mnav-icon">↑</span><span class="mnav-label">Add</span></button>
+  <button class="mobile-nav-btn" data-view="more-menu">       <span class="mnav-icon">≡</span><span class="mnav-label">More</span></button>
+</nav>
+
+<!-- MOBILE MORE MENU -->
+<div id="more-menu-panel" class="more-menu-panel hidden">
+  <div class="more-menu-header">
+    <span style="font-family:var(--font-display);font-size:14px;font-weight:700;">More</span>
+    <button id="more-menu-close" style="background:transparent;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;">✕</button>
+  </div>
+  <div class="more-menu-grid">
+    <div class="more-menu-section">AI</div>
+    <button class="more-menu-item" id="more-menu-aidirector"><span>⬡</span><span>Let AI take the wheel</span></button>
+    <button class="more-menu-item" id="more-menu-coach"><span>💬</span><span>Talk to your coach</span></button>
+    <div class="more-menu-section">Study</div>
+    <button class="more-menu-item" data-view="studyplan"><span>📅</span><span>Study Plan</span></button>
+    <button class="more-menu-item" id="more-menu-timer"><span>⏱</span><span>Study Timer</span></button>
+    <div class="more-menu-section">App</div>
+    <button class="more-menu-item" id="more-menu-settings"><span>⚙</span><span>Settings</span></button>
+    <button class="more-menu-item" data-theme-toggle><span data-theme-icon>☀</span><span>Theme</span></button>
+  </div>
+</div>
+
+<!-- SELECT TOOLBAR -->
+<div id="select-toolbar" class="select-toolbar hidden">
+  <button id="sel-question"  class="sel-btn" title="Quick Question">❓ Question</button>
+  <button id="sel-recall"    class="sel-btn" title="Recall Question">🔁 Recall</button>
+  <button id="sel-apply"     class="sel-btn" title="Application Question">🧩 Apply</button>
+  <button id="sel-define"    class="sel-btn" title="Add Definition">📖 Define</button>
+  <button id="sel-highlight" class="sel-btn" title="Highlight text">🖊 Mark</button>
+  <button id="sel-correct"   class="sel-btn" title="Correct the AI on this content">✏️ Correct AI</button>
+</div>
+
+<!-- TOAST & MODAL -->
+<div id="toast-container" class="toast-container"></div>
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal"><button class="modal-close" id="modal-close">✕</button><div id="modal-content"></div></div>
+</div>
+
+<!--
+  ⚠ THIRD-PARTY LIBRARIES — HARDEN BEFORE STORE RELEASE
+  These run with full app privilege and can reach the native bridges + the stored
+  API key, so a compromised CDN asset = full app compromise. For a shipped /
+  app-store build, do ONE of the following:
+    (1) PREFERRED: vendor these libraries locally (put each .js under js/vendor/
+        and reference it from there) so the released app fetches no executable
+        JS from a CDN at runtime — also makes the app work fully offline; OR
+    (2) pin each tag with a Subresource Integrity hash:
+        <script src="…/pdf.min.js" integrity="sha384-…" crossorigin="anonymous"></script>
+        generate with: openssl dgst -sha384 -binary file.js | openssl base64 -A
+  crossorigin="anonymous" is set so SRI can be added without other changes.
+-->
+<!-- Tesseract.js for local OCR (no API key needed) -->
+<!-- PDF.js for reliable PDF text extraction -->
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js" crossorigin="anonymous"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js" crossorigin="anonymous"></script>
+<!-- mammoth.js for Word .docx text extraction -->
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" crossorigin="anonymous"></script>
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.8.0/sql-wasm.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js" crossorigin="anonymous"></script>
+<script>window.APP_VERSION = '63.9';</script>
+<!-- Sanitizer must load before any renderer so AI/source HTML is cleaned. See js/core/Sanitizer.js. -->
+<script src="js/core/Sanitizer.js?v=1781361500"></script>
+<!-- Managed-AI build config (subscription gating). Loads early so AIService sees it. -->
+<script src="js/core/AppConfig.js?v=1781361500"></script>
+<script src="js/core/LearnerState.js"></script>
+<script src="js/core/AppFeatures.js"></script>
+<script src="js/core/ScrollLock.js?v=1781361500"></script>
+<script src="js/core/KnowledgeNode.js?v=1781361500"></script>
+<script src="js/core/NodeStore.js?v=1781361500"></script>
+<script src="js/core/BackupVault.js?v=1781361500"></script>
+<script src="js/core/SpacedRepetition.js?v=1781361500"></script>
+<script src="js/core/StudyPlan.js?v=1781361500"></script>
+<script src="js/ai/LearnerMemory.js?v=1781361500"></script>
+<script src="js/ai/AICorrections.js?v=1781361500"></script>
+<script src="js/ai/LearnerContext.js?v=1781361500"></script>
+<script src="js/ai/AIService.js?v=1781361500"></script>
+<script src="js/ui/Toast.js?v=1781361500"></script>
+<script src="js/ui/KNLoader.js?v=1781361500"></script>
+<script src="js/ui/Modal.js?v=1781361500"></script>
+<script src="js/ui/NotesRenderer.js?v=1781361500"></script>
+<script src="js/ui/BlockEngine.js?v=1781361500"></script>
+<script src="js/ui/ReactiveReshaper.js?v=1781361500"></script>
+<script src="js/ui/StudyFitCheck.js?v=1781361500"></script>
+<script src="js/ui/AIDirector.js?v=1781361500"></script>
+<script src="js/ui/StudyCoach.js?v=1781361500"></script>
+<script src="js/ui/AISettingsModal.js?v=1781361500"></script>
+<script src="js/ui/Paywall.js?v=1781361500"></script>
+<script src="js/ui/LectureMode.js?v=1781361500"></script>
+    <script src="js/ui/LearnPanel.js?v=1781361500"></script>
+<script src="js/ui/PrintExport.js?v=1781361500"></script>
+<script src="js/ui/ImageManager.js?v=1781361500"></script>
+<script src="js/ui/TextAnnotator.js?v=1781361500"></script>
+<script src="js/ui/SelectToAction.js?v=1781361500"></script>
+<script src="js/ui/StreakTracker.js?v=1781361500"></script>
+<script src="js/ui/Dashboard.js?v=1781361500"></script>
+<script src="js/ui/Onboarding.js?v=1781361500"></script>
+<script src="js/ui/Guide.js?v=1781361500"></script>
+<script src="js/ui/StudySession.js?v=1781361500"></script>
+<script src="js/ui/SettingsPanel.js?v=1781361500"></script>
+<script src="js/ui/NoteTemplates.js?v=1781361500"></script>
+<script src="js/ui/BlankRecall.js?v=1781361500"></script>
+<script src="js/ui/BulkImport.js?v=1781361500"></script>
+<script src="js/ui/UnderstandingCheck.js?v=1781361500"></script>
+<script src="js/ui/UploadView.js?v=1781361500"></script>
+<script src="js/ui/SpeechPill.js?v=1781361500"></script>
+<script src="js/ui/GuidedView.js?v=1781361500"></script>
+<script src="js/ui/LibraryView.js?v=1781361500"></script>
+<script src="js/ui/SocraticTutor.js?v=1781361500"></script>
+    <script src="js/ui/NodeDetailView.js?v=1781361500"></script>
+<script src="js/ui/ReviewView.js?v=1781361500"></script>
+<script src="js/ui/OCRReview.js?v=1781361500"></script>
+<script src="js/ui/AINodeTools.js?v=1781361500"></script>
+<script src="js/ui/ImageResponseBlock.js?v=1781361500"></script>
+<script src="js/ui/StudyPlanBuilder.js?v=1781361500"></script>
+<script src="js/ui/StudyPlanView.js?v=1781361500"></script>
+<script src="js/ui/CompetencyView.js?v=1781361500"></script>
+<script src="js/app.js?v=1781361500"></script>
+
+<!-- Back to Top Button -->
+<button id="back-to-top" aria-label="Back to top" title="Back to top" style="display:none;position:fixed;bottom:80px;right:16px;z-index:900;width:40px;height:40px;border-radius:50%;background:var(--bg-card);border:1px solid var(--border);color:var(--text-muted);font-size:16px;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.4);transition:opacity .2s,transform .2s;display:flex;align-items:center;justify-content:center;">↑</button>
+<script>
+(function(){
+  const btn = document.getElementById('back-to-top');
+  if (!btn) return;
+  btn.style.display = 'none';
+
+  // All scrollable containers in the app
+  const scrollers = () => [
+    document.getElementById('main-content'),
+    document.getElementById('detail-body'),
+    document.querySelector('.library-list'),
+    document.querySelector('.view.active'),
+    document.documentElement,
+  ].filter(Boolean);
+
+  let _activeScroller = null;
+
+  const show = (el) => {
+    const top = el === document.documentElement ? window.scrollY : el.scrollTop;
+    if (top > 200) {
+      btn.style.display = 'flex';
+      btn.style.opacity = '1';
+      _activeScroller = el;
+    } else {
+      btn.style.display = 'none';
+    }
+  };
+
+  // Attach scroll listeners to all known scrollers
+  const attachListeners = () => {
+    scrollers().forEach(el => {
+      if (el._bttBound) return;
+      el._bttBound = true;
+      el.addEventListener('scroll', () => show(el), { passive: true });
+    });
+  };
+
+  // Re-attach when views change (MutationObserver on body)
+  attachListeners();
+  new MutationObserver(attachListeners).observe(document.body, { childList: true, subtree: true });
+
+  btn.addEventListener('click', () => {
+    const el = _activeScroller || document.getElementById('detail-body') || document.getElementById('main-content');
+    if (el && el !== document.documentElement) {
+      el.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    btn.style.display = 'none';
+  });
+})();
+</script>
+<script>
+(function(){
+  setTimeout(function(){
+    var banner = document.getElementById('kn-error-banner');
+    var ranInit = (typeof App !== 'undefined' && App._initialized === true);
+    var navBtns = document.querySelectorAll('.mobile-nav-btn, .nav-item').length;
+
+    // FAILSAFE: if App.init did not bind nav (no currentView), wire a minimal
+    // navigation handler directly so the user can at least move between tabs.
+    if (typeof App !== 'undefined' && typeof App.navigateTo === 'function' && !ranInit) {
+      document.querySelectorAll('.mobile-nav-btn, .nav-item').forEach(function(b){
+        if (b._navBound) return; // already wired by App._bindNavigation
+        b._navBound = true;
+        b.addEventListener('click', function(){
+          var v = b.dataset.view;
+          if (v === 'more-menu') { document.getElementById('more-menu-panel')?.classList.toggle('hidden'); return; }
+          try { App.navigateTo(v); } catch(e){}
+        });
+      });
+    }
+    if (!ranInit || !banner) {
+      if (banner) {
+        banner.style.display = 'block';
+        banner.textContent += 'DIAGNOSTIC: App defined=' + (typeof App !== 'undefined')
+          + ' currentView=' + (typeof App !== 'undefined' ? App._currentView : 'N/A')
+          + ' navButtons=' + navBtns
+          + ' nodeStore=' + (typeof nodeStore !== 'undefined') + '\n';
+      }
+    }
+  }, 1500);
+})();
+</script>
+</body>
+</html>

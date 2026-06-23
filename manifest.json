@@ -1,0 +1,23 @@
+{
+  "name": "KnowledgeNode Study System",
+  "short_name": "KnowledgeNode",
+  "description": "AI-powered study notes, spaced repetition, and exam prep \u2014 offline ready.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080a0d",
+  "theme_color": "#f0a500",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": [
+    "education",
+    "productivity"
+  ],
+  "screenshots": []
+}

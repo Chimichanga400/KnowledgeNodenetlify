@@ -1,0 +1,139 @@
+/* ═══════════════════════════════════════════════════════════
+   KNOWLEDGE NODE — PRINT STYLES
+   Exam-ready document formatting
+═══════════════════════════════════════════════════════════ */
+
+@media print {
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    background: #fff !important;
+    color: #1a1a1a !important;
+    font-family: 'Georgia', serif;
+    font-size: 11pt;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0;
+  }
+
+  #app { display: block; }
+  #sidebar, .detail-topbar, .detail-sidebar-nav, .guided-nav,
+  .toast-container, #modal-overlay, .btn-primary, .btn-secondary,
+  .btn-ghost, .view-header, .rating-btns, .question-answer-toggle,
+  #upload-zone, #upload-config, .library-toolbar,
+  .step-tabs, .review-header { display: none !important; }
+
+  .main-content { margin-left: 0 !important; }
+
+  .view { display: none !important; padding: 0; }
+  .view.print-active { display: block !important; }
+
+  /* ─── PRINT DOCUMENT ─── */
+  .print-document {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .print-header {
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 12pt;
+    margin-bottom: 24pt;
+  }
+
+  .print-title {
+    font-size: 20pt;
+    font-weight: bold;
+    margin-bottom: 4pt;
+    color: #1a1a1a;
+  }
+
+  .print-meta {
+    font-size: 9pt;
+    color: #555;
+    font-family: 'Courier New', monospace;
+  }
+
+  .print-section {
+    margin-bottom: 20pt;
+    page-break-inside: avoid;
+  }
+
+  .print-section-title {
+    font-size: 10pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1pt;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 4pt;
+    margin-bottom: 10pt;
+    color: #333;
+  }
+
+  .print-definition {
+    display: grid;
+    grid-template-columns: 160pt 1fr;
+    gap: 0;
+    border-bottom: 0.5pt solid #ddd;
+    padding: 6pt 0;
+    font-size: 10pt;
+  }
+  .print-def-term { font-weight: bold; font-family: 'Courier New', monospace; font-size: 9.5pt; }
+  .print-def-desc { color: #222; }
+
+  .print-formula {
+    background: #f5f5f5;
+    border-left: 3pt solid #555;
+    padding: 8pt 12pt;
+    margin-bottom: 8pt;
+    font-family: 'Courier New', monospace;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  .print-formula-desc { font-family: Georgia, serif; font-size: 9.5pt; color: #444; margin-top: 4pt; font-style: italic; }
+  .print-formula-constraints { font-size: 9pt; color: #666; margin-top: 3pt; }
+
+  .print-procedure { margin-bottom: 6pt; page-break-inside: avoid; }
+  .print-proc-step { display: flex; gap: 10pt; font-size: 10pt; margin-bottom: 5pt; }
+  .print-proc-num { font-weight: bold; min-width: 16pt; color: #333; }
+
+  .print-mistake {
+    border: 0.5pt solid #ccc;
+    background: #fafafa;
+    padding: 6pt 10pt;
+    margin-bottom: 6pt;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  .print-mistake::before { content: '⚠ '; }
+
+  .print-summary {
+    background: #f9f9f9;
+    border: 0.5pt solid #ccc;
+    padding: 12pt;
+    font-size: 10.5pt;
+    line-height: 1.7;
+  }
+
+  .print-question {
+    border: 0.5pt solid #ccc;
+    padding: 8pt 12pt;
+    margin-bottom: 8pt;
+    page-break-inside: avoid;
+    font-size: 10pt;
+  }
+  .print-q-label { font-size: 8pt; text-transform: uppercase; letter-spacing: 0.5pt; color: #888; margin-bottom: 4pt; font-family: 'Courier New', monospace; }
+  .print-q-text { margin-bottom: 4pt; }
+  .print-q-answer { color: #555; font-style: italic; border-top: 0.5pt solid #ddd; padding-top: 6pt; margin-top: 6pt; }
+
+  .print-page-break { page-break-before: always; }
+
+  @page {
+    margin: 2cm;
+    size: A4;
+    @bottom-center {
+      content: "KnowledgeNode — " attr(data-chapter) " | Page " counter(page);
+      font-size: 8pt;
+      color: #888;
+    }
+  }
+}
