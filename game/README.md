@@ -17,14 +17,17 @@ saves automatically to your device.
 
 | Loop | What you do |
 |---|---|
-| 🌱 Grow | Buy seeds (street cash), plant, keep watered, harvest. Better strains unlock with reputation. |
-| 🤝 Street | Buyers appear 09:00–02:00 with offers. Sell, **haggle** (once per buyer), or decline. Every deal adds **heat**. |
-| 🎩 Crew | Gardeners automate watering/harvest, Runners auto-sell, Fixers cool heat, a Barrister softens raids. Wages due at dawn. |
-| 🏛️ Business | Front businesses launder dirty **cash** into clean **bank** money (10% fee, settles at dawn). Lords and estates only accept bank money. |
+| 🌱 Grow | Buy seeds (street cash), plant, keep watered, harvest. 8 strains unlock with reputation, across 7 leasable estates. Plants are drawn live and visibly grow, wilt, and ripen. |
+| 🤝 Street | Buyers appear 09:00–02:00 with offers. Sell, **haggle** (once per buyer), or decline. Every deal adds **heat**. Market prices shift every dawn — sell into hot markets. |
+| 📜 Contracts | Timed bulk orders that pay 140–180% of value straight into the **bank**. Miss the deadline and your reputation suffers. |
+| 🎩 Crew | 6 roles: Gardeners automate watering/harvest, Runners auto-sell, Fixers cool heat, Botanists boost yield, Gamekeepers cut raid chance, a Barrister softens raids. Wages due at dawn. |
+| 🏛️ Business | 6 front businesses launder dirty **cash** into clean **bank** money (10% fee, settles at dawn). 9 upgrades. Lords and estates only accept bank money. |
 | 🚨 Heat | Above 70, dawn raids become likely. At 100, a major crackdown torches everything. Bribe, hire fixers, or lie low until dawn. |
-| 📜 Events | Gentlemen-style dilemmas — blackmailing heirs, rival crews, journalists, poker nights. Choices have consequences. |
+| 🎭 Events | 20 Gentlemen-style dilemmas — blackmailing heirs, rival crews, journalists, corgis, seed auctions, weddings. Choices have consequences. |
+| 🏆 Extras | 12 achievements, and a living scenery panel: the sky cycles dawn→night with a moving sun and moon, stars come out, the manor's windows light up, and a police car rolls in when you're running hot. |
 
-**Win:** bank **£500,000 clean** and buy *The Gentleman's Exit*.
+**Win:** bank **£500,000 clean** and buy *The Gentleman's Exit* — how cleanly you
+played (raids survived, final heat, reputation) decides which of four endings you get.
 
 Controls: tap/click everything. Speed controls (⏸ 1× 2× 4×) and a 🌙 *Dawn* skip live in
 the top bar. Progress autosaves to `localStorage` every 15 seconds.
