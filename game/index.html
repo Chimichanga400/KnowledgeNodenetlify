@@ -1928,9 +1928,16 @@ const HOUSE_CX=4, HOUSE_CY=4;   // centre of the house grounds (Crew scene)
 function mkPed(type){ return { type, axis:Math.random()<0.5?'h':'v', line:pick(ROAD_LINES),
   t:Math.random(), dir:Math.random()<0.5?1:-1, lane:Math.random()<0.5?-0.22:0.22,
   spd:0.02+Math.random()*0.03, ph:Math.random()*6.28, col:pick(PED_COL[type]||PED_COL.civ),
-  ang:Math.random()*6.28, r:2.4+Math.random()*1.6, asp:0.25+Math.random()*0.4 }; }
+  ang:Math.random()*6.28, r:2.4+Math.random()*1.6, asp:0.25+Math.random()*0.4,
+  cx:HOUSE_CX, cy:HOUSE_CY }; }
 function empBuildPeds(mode){
   peds=[];
+  if(mode==='garden'){
+    // the Grow scene: a gardener or two tending the pots, plus you
+    const g=Math.max(1, Math.min(2, countRole('gardener')||1));
+    for(let i=0;i<g;i++){ const pd=mkPed('gardener'); pd.path='ring'; pd.cx=3; pd.cy=2.6; pd.r=1.5+Math.random()*0.6; pd.asp=0.2+Math.random()*0.25; peds.push(pd); }
+    return;
+  }
   if(mode==='house'){
     // the Crew scene: one figure per staff member, milling around the house
     for(const s of S.staff){ const t=({dealer:'runner',enforcer:'enforcer',gardener:'gardener',
@@ -1949,7 +1956,7 @@ function empBuildPeds(mode){
 }
 // city peds walk the street grid; house peds orbit the residence
 function pedPos(p){
-  if(p.path==='ring'){ return isoPt(HOUSE_CX+Math.cos(p.ang)*p.r, HOUSE_CY+Math.sin(p.ang)*p.r*1.1); }
+  if(p.path==='ring'){ return isoPt(p.cx+Math.cos(p.ang)*p.r, p.cy+Math.sin(p.ang)*p.r*1.1); }
   const u=0.2+p.t*8.6;
   return p.axis==='h' ? isoPt(u, p.line+p.lane) : isoPt(p.line+p.lane, u);
 }
@@ -2031,6 +2038,86 @@ function drawSky(ctx,night){
   ctx.fillStyle=sky; ctx.fillRect(0,0,EMP_W,EMP_H);
   if(night>0.4){ ctx.fillStyle=`rgba(240,236,214,${(night-0.4)*1.2})`;
     for(let i=0;i<30;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%100; ctx.fillRect(sx,sy,1.5,1.5); } }
+}
+// ── GROW scene: an underground grow room (a garden in a basement) ──
+function drawGardenPot(ctx,gx,gy,plot){
+  const p=isoPt(gx,gy);
+  // pot
+  poly(ctx,[[p[0]-8,p[1]-6],[p[0]+8,p[1]-6],[p[0]+6,p[1]+4],[p[0]-6,p[1]+4]],'#5a3a22');
+  poly(ctx,[[p[0]-8,p[1]-7],[p[0]+8,p[1]-7],[p[0]+6,p[1]-5],[p[0]-6,p[1]-5]],'#6a4630');
+  poly(ctx,[[p[0]-6,p[1]-6],[p[0]+6,p[1]-6],[p[0]+5,p[1]-8],[p[0]-5,p[1]-8]],'#231710'); // soil
+  if(plot && plot.strain){
+    const st=strain(plot.strain);
+    const pct=Math.min(1, plot.grown/st.grow), ready=plot.grown>=st.grow;
+    const dry=plot.water<=0 && !ready;
+    const h=7+26*pct;
+    ctx.strokeStyle=dry?'#7a5c30':'#3f9c62'; ctx.lineWidth=2.2;
+    ctx.beginPath(); ctx.moveTo(p[0],p[1]-7); ctx.lineTo(p[0],p[1]-7-h); ctx.stroke();
+    const leaf=dry?'#9a7a44':'#5fbf7f';
+    const pairs=Math.max(1,Math.ceil((ready?1:Math.max(pct,0.18))*3));
+    for(let i=1;i<=pairs;i++){ const ly=p[1]-7-h*(i/(pairs+0.5)), lw=7-i*1.1;
+      ctx.fillStyle=leaf; ctx.beginPath(); ctx.ellipse(p[0]-lw*0.8,ly,lw,2.4,-0.4,0,7); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(p[0]+lw*0.8,ly,lw,2.4,0.4,0,7); ctx.fill(); }
+    if(ready){ ctx.fillStyle='#cfe07a'; ctx.beginPath(); ctx.arc(p[0],p[1]-9-h,3.4,0,7); ctx.fill();
+      ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.fillText('✨',p[0]+8,p[1]-10-h); ctx.textAlign='left'; }
+  }
+}
+function drawGrowLight(ctx,gx,gy,ceil){
+  const p=isoPt(gx,gy), ly=p[1]-ceil;
+  ctx.strokeStyle='#2a2f36'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(p[0]-6,ly-13); ctx.lineTo(p[0]-6,ly); ctx.moveTo(p[0]+6,ly-13); ctx.lineTo(p[0]+6,ly); ctx.stroke();
+  // magenta grow-light cone to the floor
+  const g=ctx.createLinearGradient(p[0],ly,p[0],p[1]);
+  g.addColorStop(0,'rgba(214,120,255,0.34)'); g.addColorStop(1,'rgba(214,120,255,0)');
+  ctx.fillStyle=g; poly(ctx,[[p[0]-11,ly+2],[p[0]+11,ly+2],[p[0]+20,p[1]],[p[0]-20,p[1]]]);
+  // fixture + bright tube
+  ctx.fillStyle='#1a1e24'; roundRect(ctx,p[0]-13,ly-5,26,6,1);
+  ctx.fillStyle='rgba(236,190,255,0.95)'; ctx.fillRect(p[0]-11,ly-1,22,2.5);
+}
+function empDrawGarden(ctx,now){
+  // no sky — it's a cellar
+  ctx.fillStyle='#0a0d0b'; ctx.fillRect(0,0,EMP_W,EMP_H);
+  const H=70;
+  const A=isoPt(-0.4,-0.4),B=isoPt(6.4,-0.4),C=isoPt(6.4,5.4),D=isoPt(-0.4,5.4);
+  // floor
+  poly(ctx,[A,B,C,D],'#211d18');
+  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
+  for(let i=0;i<=6;i++){ const a=isoPt(i,-0.4),b=isoPt(i,5.4); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+  for(let j=0;j<=5;j++){ const a=isoPt(-0.4,j),b=isoPt(6.4,j); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+  // back walls (brick)
+  poly(ctx,[A,B,[B[0],B[1]-H],[A[0],A[1]-H]],'#241f1a');
+  poly(ctx,[A,D,[D[0],D[1]-H],[A[0],A[1]-H]],'#1d1914');
+  ctx.strokeStyle='rgba(0,0,0,0.28)'; ctx.lineWidth=1;
+  for(let k=1;k<5;k++){ // brick courses on right wall
+    const y=-k*(H/5); ctx.beginPath(); ctx.moveTo(A[0],A[1]+y); ctx.lineTo(B[0],B[1]+y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(A[0],A[1]+y); ctx.lineTo(D[0],D[1]+y); ctx.stroke(); }
+  // ducting + a small barrel along the back
+  ctx.fillStyle='#33383f'; roundRect(ctx,A[0]-2,A[1]-H+6,120,7,3);
+  const bar=isoPt(0.5,0.5); ctx.fillStyle='#2b3a4a'; roundRect(ctx,bar[0]-8,bar[1]-24,16,20,3); ctx.fillStyle='#3a4c5e'; ctx.fillRect(bar[0]-8,bar[1]-20,16,3);
+
+  // collect drawables (lights behind pots), sorted by depth
+  const items=[];
+  const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
+  // gather this empire's plots to fill the pots
+  const plots=[];
+  for(const id in S.estates){ const est=S.estates[id]; if(!est.owned) continue; for(const p of est.plots) plots.push(p); }
+  const cols=4, rows=3; let idx=0;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const gx=0.9+c*1.35, gy=1.0+r*1.35;
+    push(gx,gy-0.4, ((gx,gy)=>()=>drawGrowLight(ctx,gx,gy,H-6))(gx,gy));   // light above
+    const plot=plots[idx++];
+    push(gx,gy, ((gx,gy,plot)=>()=>drawGardenPot(ctx,gx,gy,plot))(gx,gy,plot));
+  }
+  // gardener(s)
+  for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
+  items.sort((a,b)=>a.y-b.y); for(const it of items) it.fn();
+
+  // faint grow-light haze over everything
+  ctx.fillStyle='rgba(150,70,180,0.06)'; ctx.fillRect(0,0,EMP_W,EMP_H);
+  let growing=0, total=0; for(const p of plots){ total++; if(p.strain) growing++; }
+  ctx.fillStyle='rgba(240,236,214,.8)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
+  ctx.fillText('The Cellar Grow', 12, EMP_H-12);
+  ctx.textAlign='right'; ctx.fillText(`${growing}/${total} plots growing`, EMP_W-12, EMP_H-12);
+  ctx.textAlign='left';
 }
 // ── CREW scene: your residence on its grounds, staff milling about ──
 function empDrawHouse(ctx,now){
@@ -2124,15 +2211,16 @@ function sceneStart(mode){
   const cv=$('sceneCanvas'); if(!cv) return;
   const ctx=cv.getContext('2d');
   sceneMode=mode;
-  empBuildPeds(mode==='house'?'house':'city');
+  empBuildPeds(mode);
   if(mode==='city'){ const hadWar=warUnseen; warUnseen=false;
     if(hadWar){ const [x,y]=isoPt(6,6); warFx.push({x,y,life:0,max:3.4}); } }
+  const DRAW={garden:empDrawGarden, house:empDrawHouse, city:empDrawCity};
   let last=performance.now();
   sceneStop();
   (function loop(now){
     empDT=Math.min(0.05,(now-last)/1000); last=now;
     updatePeds(empDT);
-    (sceneMode==='house'?empDrawHouse:empDrawCity)(ctx, now/1000);
+    (DRAW[sceneMode]||empDrawCity)(ctx, now/1000);
     empRAF=requestAnimationFrame(loop);
   })(performance.now());
 }
@@ -2162,7 +2250,7 @@ function renderHUD(){
   updateScene();
 }
 
-const SCENE_TABS={street:'city', crew:'house'};
+const SCENE_TABS={grow:'garden', street:'city', crew:'house'};
 let lastTab=null, lastHTML='', animT=null;
 function manageScene(){
   const titleUp = $('title') && $('title').style.display!=='none';
@@ -2204,25 +2292,8 @@ function estateArtHTML(e, locked){
   return `<div class="estArt${locked?' locked':''}"><svg viewBox="0 0 200 60" preserveAspectRatio="xMidYMax meet"><g class="sil">${e.art}</g></svg></div>`;
 }
 
-// A portrait of your current house (your grandest residence) for the Grow tab
-function residenceHero(){
-  const e=ESTATES[heroEstateIdx()];
-  let plots=0, growing=0;
-  for(const id in S.estates){ const est=S.estates[id]; if(!est.owned) continue;
-    plots+=est.plots.length; growing+=est.plots.filter(p=>p.strain).length; }
-  return `<div class="card residence">
-    <svg viewBox="0 0 200 96" preserveAspectRatio="xMidYMax meet"
-      style="background:linear-gradient(180deg,#33507a 0%,#7c6a52 74%,#20402a 74%,#16301f 100%);">
-      <g class="hsil" transform="translate(0,34) scale(1.05)">${e.art}</g>
-      <ellipse cx="164" cy="20" rx="9" ry="9" fill="#ffe9a8" opacity="0.85"/>
-      <rect x="0" y="90" width="200" height="6" fill="#0f2416"/>
-    </svg>
-    <div class="cap"><div class="k">Your residence</div><div class="n">${e.name}</div></div>
-    <div class="pills"><span class="pill">🌱 ${growing}/${plots} plots growing</span></div>
-  </div>`;
-}
 function rGrow(){
-  let h=residenceHero();
+  let h='';
   for(const e of ESTATES){
     const owned=S.estates[e.id]?.owned;
     if(owned){
