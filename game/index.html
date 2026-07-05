@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"/>
+<meta name="theme-color" content="#0b1f16"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="icon" href="icon.svg" type="image/svg+xml"/>
+<link rel="apple-touch-icon" href="icon.svg"/>
+<title>Emerald Estates — An Underground Empire</title>
+<style>
+  :root{
+    --bg:#0b1410; --panel:#12241b; --panel2:#0e1c15; --line:#1f3a2c;
+    --gold:#d9b45b; --gold-dim:#8f7a45; --green:#5fbf7f; --red:#e2635f;
+    --ink:#e8e4d8; --ink-dim:#9aa89d; --blue:#6fa8dc;
+    --radius:14px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px; line-height:1.45; overscroll-behavior:none;}
+  h1,h2,h3,.serif{font-family:Georgia,"Times New Roman",serif;}
+  button{font:inherit; cursor:pointer; border:none; border-radius:10px;
+    background:var(--panel); color:var(--ink); padding:9px 14px;}
+  button:disabled{opacity:.4; cursor:default;}
+  button.gold{background:linear-gradient(180deg,#e0bd63,#a8843a); color:#241a05; font-weight:700;}
+  button.ghost{background:transparent; border:1px solid var(--line); color:var(--ink-dim);}
+  button.danger{background:#3a1715; color:#f0b0ae; border:1px solid #5c2523;}
+
+  #wrap{max-width:900px; margin:0 auto; padding:0 10px calc(84px + env(safe-area-inset-bottom)); }
+  @media(min-width:700px){ #wrap{padding-bottom:20px;} }
+
+  /* ── HUD ── */
+  #hud{position:sticky; top:0; z-index:40; background:linear-gradient(180deg,#0d1a13 85%,rgba(13,26,19,0));
+    padding:10px 4px 12px; }
+  #hud .row1{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+  #hud h1{font-size:19px; margin:0; color:var(--gold); letter-spacing:.5px; white-space:nowrap;}
+  #clock{margin-left:auto; font-variant-numeric:tabular-nums; color:var(--ink-dim); font-size:14px; white-space:nowrap;}
+  #hud .row2{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;}
+  .stat{background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+    padding:5px 10px; font-size:13px; display:flex; gap:6px; align-items:center; white-space:nowrap;}
+  .stat b{font-variant-numeric:tabular-nums;}
+  .stat .lbl{color:var(--ink-dim); font-size:11px; text-transform:uppercase; letter-spacing:.6px;}
+  #heatwrap{flex:1; min-width:110px;}
+  #heatbar{height:8px; border-radius:6px; background:#20140f; overflow:hidden; margin-top:3px;}
+  #heatfill{height:100%; width:0%; background:linear-gradient(90deg,#c98a3a,#e2635f); transition:width .4s;}
+  #speed{display:flex; gap:4px;}
+  #speed button{padding:5px 10px; font-size:12px; border:1px solid var(--line); background:var(--panel2); color:var(--ink-dim);}
+  #speed button.on{color:#1d1405; background:var(--gold); font-weight:700;}
+
+  /* ── Tabs ── */
+  #tabs{position:fixed; left:0; right:0; bottom:0; z-index:50; display:flex;
+    background:#0a130e; border-top:1px solid var(--line);
+    padding-bottom:env(safe-area-inset-bottom);}
+  #tabs button{flex:1; background:none; border-radius:0; padding:9px 2px 8px; color:var(--ink-dim);
+    font-size:11px; display:flex; flex-direction:column; align-items:center; gap:2px;}
+  #tabs button .ico{font-size:19px; line-height:1;}
+  #tabs button.on{color:var(--gold);}
+  #tabs button .bdg{position:absolute; transform:translate(14px,-4px); background:var(--red); color:#fff;
+    border-radius:9px; font-size:10px; min-width:16px; padding:1px 4px; font-weight:700;}
+  @media(min-width:700px){
+    #tabs{position:sticky; top:0; bottom:auto; border-top:none; border-bottom:1px solid var(--line);
+      max-width:900px; margin:0 auto; background:transparent;}
+    #tabs button{font-size:13px; flex-direction:row; gap:7px; padding:11px;}
+  }
+
+  /* ── Cards & layout ── */
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:13px 14px; margin:10px 0;}
+  .card h3{margin:0 0 4px; font-size:16px; color:var(--gold);}
+  .card .sub{color:var(--ink-dim); font-size:12.5px;}
+  .rowline{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
+  .spacer{flex:1;}
+  .money{color:var(--green); font-variant-numeric:tabular-nums;}
+  .dirty{color:#d9b45b;}
+  .bad{color:var(--red);}
+  .muted{color:var(--ink-dim);}
+  .pill{display:inline-block; background:var(--panel2); border:1px solid var(--line);
+    border-radius:20px; padding:2px 9px; font-size:11.5px; color:var(--ink-dim); margin:2px 3px 2px 0;}
+
+  /* ── Plots ── */
+  .plots{display:grid; grid-template-columns:repeat(auto-fill,minmax(96px,1fr)); gap:8px; margin-top:10px;}
+  .plot{background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+    min-height:96px; padding:8px 6px; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    text-align:center; cursor:pointer; user-select:none; position:relative;}
+  .plot .em{font-size:26px;}
+  .plot .nm{font-size:11px; color:var(--ink-dim); margin-top:2px;}
+  .plot.ready{border-color:var(--gold); box-shadow:0 0 12px rgba(217,180,91,.25);}
+  .plot.dry{border-color:#8a5a2b;}
+  .bar{width:80%; height:5px; background:#0a0f0c; border-radius:4px; overflow:hidden; margin-top:6px;}
+  .bar i{display:block; height:100%; background:var(--green);}
+  .bar.w i{background:var(--blue);}
+
+  /* ── Offers ── */
+  .offer{border-left:3px solid var(--gold);}
+  .offer .price{font-size:17px;}
+  .offbtns{display:flex; gap:8px; margin-top:9px;}
+  .offbtns button{flex:1;}
+
+  /* ── Modal ── */
+  #modalback{position:fixed; inset:0; background:rgba(4,8,6,.78); z-index:100;
+    display:flex; align-items:center; justify-content:center; padding:18px;}
+  #modal{background:var(--panel); border:1px solid var(--gold-dim); border-radius:16px;
+    max-width:480px; width:100%; max-height:82vh; overflow-y:auto; padding:20px;}
+  #modal h2{margin:0 0 8px; color:var(--gold); font-size:20px;}
+  #modal .choices{display:flex; flex-direction:column; gap:9px; margin-top:14px;}
+  #modal .choices button{text-align:left; padding:12px 14px; background:var(--panel2);
+    border:1px solid var(--line); line-height:1.35;}
+  #modal .choices button:hover{border-color:var(--gold-dim);}
+  #modal .choices button small{display:block; color:var(--ink-dim); font-size:12px; margin-top:2px;}
+  .hidden{display:none !important;}
+
+  /* ── Toasts ── */
+  #toasts{position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:200;
+    display:flex; flex-direction:column; gap:6px; width:min(94vw,420px); pointer-events:none;}
+  .toast{background:#182e22; border:1px solid var(--line); border-left:3px solid var(--gold);
+    border-radius:10px; padding:9px 13px; font-size:13.5px; box-shadow:0 4px 18px rgba(0,0,0,.45);
+    animation:tin .25s ease-out;}
+  .toast.bad{border-left-color:var(--red); background:#2c1614;}
+  @keyframes tin{from{opacity:0; transform:translateY(-8px);} to{opacity:1;}}
+
+  .loglist{font-size:13px;}
+  .loglist div{padding:6px 2px; border-bottom:1px solid var(--line); color:var(--ink-dim);}
+  .loglist b{color:var(--ink);}
+  .statgrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;}
+  .statgrid .card{margin:0; text-align:center;}
+  .statgrid .big{font-size:20px; font-weight:700; color:var(--gold);}
+
+  .invrow{display:flex; align-items:center; gap:10px; padding:8px 2px; border-bottom:1px solid var(--line);}
+  .hirebtn{white-space:nowrap;}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div class="row1">
+      <h1>🌿 Emerald Estates</h1>
+      <span id="clock"></span>
+    </div>
+    <div class="row2">
+      <span class="stat" title="Dirty cash — street money"><span class="lbl">Cash</span> <b class="dirty" id="hCash"></b></span>
+      <span class="stat" title="Clean money — laundered, spendable on estates"><span class="lbl">Bank</span> <b class="money" id="hBank"></b></span>
+      <span class="stat"><span class="lbl">Rep</span> <b id="hRep"></b></span>
+      <span class="stat" id="heatwrap"><span class="lbl">Heat</span> <b id="hHeat"></b>
+        <span style="flex:1"><span id="heatbar"><i id="heatfill" style="display:block"></i></span></span>
+      </span>
+      <span id="speed">
+        <button id="sp0" onclick="A.speed(0)">⏸</button>
+        <button id="sp1" onclick="A.speed(1)">1×</button>
+        <button id="sp2" onclick="A.speed(2)">2×</button>
+        <button id="sp3" onclick="A.speed(3)">4×</button>
+        <button onclick="A.sleep()" title="Lie low until 6:00 dawn">🌙 Dawn</button>
+      </span>
+    </div>
+  </div>
+
+  <nav id="tabs">
+    <button id="tab-grow"   onclick="A.tab('grow')"><span class="ico">🌱</span>Grow</button>
+    <button id="tab-street" onclick="A.tab('street')"><span class="bdg hidden" id="bdgOffers"></span><span class="ico">🤝</span>Street</button>
+    <button id="tab-crew"   onclick="A.tab('crew')"><span class="ico">🎩</span>Crew</button>
+    <button id="tab-biz"    onclick="A.tab('biz')"><span class="ico">🏛️</span>Business</button>
+    <button id="tab-ledger" onclick="A.tab('ledger')"><span class="ico">📜</span>Ledger</button>
+  </nav>
+
+  <main id="view"></main>
+</div>
+
+<div id="toasts"></div>
+<div id="modalback" class="hidden"><div id="modal"></div></div>
+
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════════
+   EMERALD ESTATES — a Gentlemen × Schedule inspired empire tycoon.
+   Single-file, offline, saves to localStorage. Fictional satire.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Static data ─────────────────────────────────────────────────── */
+const STRAINS = [
+  {id:'mint',    name:'Garden Mint',     em:'🌱', seed:40,   grow:240,  value:22,  yield:8,  rep:0,   blurb:'A humble beginning. Grows fast, sells cheap.'},
+  {id:'duchess', name:'Duchess OG',      em:'🌿', seed:120,  grow:420,  value:38,  yield:10, rep:20,  blurb:'Refined, floral, beloved by the county set.'},
+  {id:'haze',    name:'Royal Haze',      em:'💨', seed:300,  grow:600,  value:55,  yield:12, rep:60,  blurb:'A heady classic. The clubs cannot get enough.'},
+  {id:'windsor', name:'White Windsor',   em:'❄️', seed:700,  grow:840,  value:80,  yield:14, rep:140, blurb:'Frosted, potent, dangerously fashionable.'},
+  {id:'crown',   name:'Crown Jewel',     em:'👑', seed:1600, grow:1080, value:115, yield:16, rep:260, blurb:'Award-winning genetics. Connoisseurs only.'},
+  {id:'imperial',name:'Imperial Purple', em:'🟣', seed:3500, grow:1440, value:165, yield:20, rep:420, blurb:'The stuff of legend. Kings would kill for it.'},
+];
+const ESTATES = [
+  {id:'shed',        name:'Allotment Shed',    lord:'Nobody asks questions here', cost:0,     fee:0,    plots:2,  rep:0,   blurb:'A leaky shed behind the allotments. Home sweet home.'},
+  {id:'hollowbrook', name:'Hollowbrook Manor', lord:'Lord Pemberton',             cost:2500,  fee:120,  plots:4,  rep:40,  blurb:'A cash-strapped baron with a very large cellar.'},
+  {id:'ashcombe',    name:'Ashcombe Hall',     lord:'The Duke of Ashcombe',       cost:9000,  fee:350,  plots:6,  rep:120, blurb:'The Duke gambles. The Duke loses. The Duke hosts.'},
+  {id:'ravenswood',  name:'Ravenswood Estate', lord:'Lady Ravenswood',            cost:25000, fee:900,  plots:9,  rep:250, blurb:'Her ladyship prefers her tenants discreet and punctual.'},
+  {id:'blackwater',  name:'Blackwater Castle', lord:'The Earl of Blackwater',     cost:70000, fee:2200, plots:12, rep:450, blurb:'Twelve sub-basements. A moat. Perfection.'},
+];
+const ROLES = {
+  gardener: {name:'Gardener',  em:'🧑‍🌾', hire:800,  wage:150, blurb:'Waters and harvests every plot at one estate, day and night.'},
+  dealer:   {name:'Runner',    em:'🕶️', hire:1200, wage:200, blurb:'Moves product on the street automatically. Adds a little heat.'},
+  fixer:    {name:'Fixer',     em:'🚬', hire:2500, wage:400, blurb:'Greases palms. Burns 10 heat every dawn.'},
+  barrister:{name:'Barrister', em:'⚖️', hire:6000, wage:600, blurb:'When the police come knocking, they leave with half as much. (Max 1)'},
+};
+const FRONTS = [
+  {id:'butcher',    name:'Meat & Greet Butchers',       em:'🥩', cost:3000,  launder:400,  blurb:'Nobody audits sausages.'},
+  {id:'laundrette', name:'Bubble Duchess Laundrette',   em:'🫧', cost:8000,  launder:1000, blurb:'Washing money and socks since Tuesday.'},
+  {id:'lounge',     name:'The Velvet Fox Lounge',       em:'🍸', cost:20000, launder:2500, blurb:'£18 cocktails. All receipts, no questions.'},
+  {id:'gym',        name:'Marquess Boxing Club',        em:'🥊', cost:50000, launder:6000, blurb:'A gentleman settles things in the ring.'},
+];
+const UPGRADES = [
+  {id:'irrigation', name:'Drip Irrigation', em:'💧', cost:1500,  blurb:'Plants stay watered twice as long.'},
+  {id:'lamps',      name:'Dutch Lamps',     em:'💡', cost:4000,  blurb:'All plants grow 25% faster.'},
+  {id:'burner',     name:'Burner Network',  em:'📟', cost:2500,  blurb:'More street offers, 30% less heat per deal.'},
+  {id:'vault',      name:'Estate Vaults',   em:'🔐', cost:6000,  blurb:'Raids seize half as much product.'},
+  {id:'tailor',     name:'Savile Row Wardrobe', em:'🤵', cost:9000, blurb:'Look the part: haggling succeeds far more often.'},
+];
+const EXIT_COST = 500000;
+const NAMES = ['Alfie','Bertie','Clem','Dot','Errol','Flick','Gus','Hattie','Ivo','Jinx','Kip','Lottie','Milo','Nell','Ozzy','Pru','Quill','Ren','Sid','Tilly','Vic','Wren'];
+
+/* ── State ───────────────────────────────────────────────────────── */
+const SAVE_KEY = 'emerald_estates_v1';
+let S = null;
+function freshState(){
+  return {
+    v:1, day:1, min:480, minF:480, absMin:480, speed:1, tab:'grow',
+    cash:250, bank:0, heat:0, rep:0,
+    inv:{}, seeds:{},
+    estates:{ shed:{ owned:true, autoReplant:false, plots:mkPlots(2) } },
+    staff:[], fronts:{}, upgrades:{},
+    offers:[], nextOfferId:1, eventMin:null, eventDoneDay:0,
+    log:[], won:false,
+    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, daysPlayed:1},
+    seenIntro:false,
+  };
+}
+function mkPlots(n){ const a=[]; for(let i=0;i<n;i++) a.push({strain:null, grown:0, water:0, dry:false}); return a; }
+
+/* ── Helpers ─────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const fmt = n => '£' + Math.floor(n).toLocaleString('en-GB');
+const strain = id => STRAINS.find(s=>s.id===id);
+const clamp = (n,a,b)=>Math.max(a,Math.min(b,n));
+const rnd = (a,b)=>a+Math.random()*(b-a);
+const ri = (a,b)=>Math.floor(rnd(a,b+1));
+const pick = a => a[Math.floor(Math.random()*a.length)];
+function clockStr(){ const h=Math.floor(S.min/60), m=Math.floor(S.min%60);
+  return `Day ${S.day} · ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`; }
+function invTotal(){ return Object.values(S.inv).reduce((a,b)=>a+b,0); }
+function up(id){ return !!S.upgrades[id]; }
+function growSpeed(){ return up('lamps') ? 1.25 : 1; }
+function waterDrain(){ return 100/(up('irrigation') ? 960 : 480); }
+function countRole(r){ return S.staff.filter(s=>s.role===r).length; }
+function gardenersAt(eid){ return S.staff.filter(s=>s.role==='gardener' && s.estate===eid).length; }
+
+function log(msg, bad){
+  S.log.unshift({t:clockStr(), msg, bad:!!bad});
+  if(S.log.length>60) S.log.length=60;
+}
+function toast(msg, bad){
+  const t=document.createElement('div'); t.className='toast'+(bad?' bad':''); t.innerHTML=msg;
+  $('toasts').appendChild(t);
+  setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),450); }, 3400);
+}
+function addRep(n){ S.rep = Math.max(0, Math.round(S.rep+n)); }
+function addHeat(n){ S.heat = clamp(S.heat+n, 0, 100); if(S.heat>=100) bigRaid(); }
+function earnCash(n){ S.cash+=n; S.stats.earned+=n; }
+
+/* ── Modal ───────────────────────────────────────────────────────── */
+let modalOpen=false, pendingEvent=null;
+function showModal(html){ $('modal').innerHTML=html; $('modalback').classList.remove('hidden'); modalOpen=true; }
+function closeModal(){ $('modalback').classList.add('hidden'); modalOpen=false; pendingEvent=null; render(); }
+
+/* ── Plant simulation (per game-minute) ──────────────────────────── */
+function minutePlants(){
+  for(const eid in S.estates){
+    const est=S.estates[eid]; if(!est.owned) continue;
+    const hasGardener = gardenersAt(eid)>0;
+    for(const p of est.plots){
+      if(!p.strain) continue;
+      const st=strain(p.strain);
+      if(hasGardener) p.water=100;
+      if(p.water>0){ p.water=Math.max(0,p.water-waterDrain()); p.grown+=growSpeed(); }
+      else if(p.grown<st.grow) p.dry=true;
+      if(p.grown>=st.grow && hasGardener) harvestPlot(eid,p,true);
+    }
+  }
+}
+function harvestPlot(eid,p,auto){
+  const st=strain(p.strain);
+  let y=Math.max(1, Math.round(st.yield*(p.dry?0.75:1)));
+  S.inv[st.id]=(S.inv[st.id]||0)+y;
+  S.stats.harvests++;
+  addRep(1);
+  const est=S.estates[eid];
+  const wasDry=p.dry, sid=p.strain;
+  p.strain=null; p.grown=0; p.water=0; p.dry=false;
+  if(auto && est.autoReplant && S.cash>=st.seed){ S.cash-=st.seed; p.strain=sid; p.water=100; }
+  if(!auto) toast(`Harvested <b>${y}× ${st.name}</b>${wasDry?' (drought-stunted)':''}`);
+  else log(`Gardener harvested ${y}× ${st.name} at ${ESTATES.find(e=>e.id===eid).name}.`);
+}
+
+/* ── Street offers ───────────────────────────────────────────────── */
+function minuteOffers(){
+  // expire
+  S.offers = S.offers.filter(o=>{ if(abs()>o.expires){ log(`A buyer for ${strain(o.strain).name} got tired of waiting.`,true); return false;} return true; });
+  const h=S.min/60;
+  if(h<9 && h>2) return;                    // streets quiet 02:00-09:00
+  if(S.offers.length>=3) return;
+  const have = Object.keys(S.inv).filter(k=>S.inv[k]>0);
+  let chance = (1/90)*(1+S.rep/200)*(up('burner')?1.6:1);
+  if(!have.length) chance/=4;
+  if(Math.random()<chance) makeOffer(have);
+}
+function abs(){ return S.absMin; }
+function makeOffer(have){
+  const sid = have.length ? pick(have) : STRAINS.filter(s=>S.rep>=s.rep)[0].id;
+  const st=strain(sid);
+  const qty=ri(2, 4+Math.floor(S.rep/50));
+  const mult=rnd(0.85,1.4);
+  const price=Math.round(st.value*mult);
+  const heat=Math.max(1,Math.round(qty*0.5*(up('burner')?0.7:1)));
+  S.offers.push({id:S.nextOfferId++, strain:sid, qty, price, heat, expires:abs()+90, haggled:false});
+  toast(`🤝 A buyer wants <b>${qty}× ${st.name}</b> @ ${fmt(price)}/ea`);
+  render();
+}
+function sellToOffer(o){
+  const q=Math.min(o.qty, S.inv[o.strain]||0);
+  if(q<=0){ toast('You have none of that in stock.', true); return; }
+  S.inv[o.strain]-=q;
+  const total=q*o.price;
+  earnCash(total);
+  addHeat(o.heat);
+  addRep(Math.ceil(q/3));
+  S.stats.sold+=q;
+  S.offers=S.offers.filter(x=>x.id!==o.id);
+  log(`Sold ${q}× ${strain(o.strain).name} on the street for ${fmt(total)}.`);
+  toast(`💷 +${fmt(total)} cash <span class="muted">(+${o.heat} heat)</span>`);
+  render();
+}
+
+/* ── Dealers ─────────────────────────────────────────────────────── */
+function minuteDealers(){
+  const h=S.min/60;
+  if(h<10||h>=22) return;
+  const dealers=countRole('dealer');
+  for(let i=0;i<dealers;i++){
+    if(Math.random()>1/80) continue;
+    const have=Object.keys(S.inv).filter(k=>S.inv[k]>0)
+      .sort((a,b)=>strain(b).value-strain(a).value);
+    if(!have.length) return;
+    const sid=have[0], st=strain(sid);
+    const q=Math.min(ri(1,3), S.inv[sid]);
+    S.inv[sid]-=q;
+    const total=Math.round(q*st.value*0.8);
+    earnCash(total);
+    addHeat(1);
+    S.stats.sold+=q;
+    log(`A runner moved ${q}× ${st.name} for ${fmt(total)}.`);
+  }
+}
+
+/* ── Dawn settlement (06:00) ─────────────────────────────────────── */
+function settle(){
+  S.day++; S.stats.daysPlayed++;
+  let notes=[];
+  // wages (cash)
+  const wages=S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0);
+  if(wages>0){
+    if(S.cash>=wages){ S.cash-=wages; notes.push(`Wages paid: ${fmt(wages)}`); }
+    else{
+      const q=S.staff.pop();
+      addRep(-5);
+      notes.push(`Couldn't make payroll — ${ROLES[q.role].name} ${q.name} walked. (-5 rep)`);
+    }
+  }
+  // lord fees (bank, fallback cash at 1.5x)
+  let fees=0;
+  for(const e of ESTATES){ if(S.estates[e.id]?.owned) fees+=e.fee; }
+  if(fees>0){
+    if(S.bank>=fees){ S.bank-=fees; notes.push(`Lords' consideration: ${fmt(fees)} (bank)`); }
+    else if(S.cash>=fees*1.5){ S.cash-=Math.round(fees*1.5); addHeat(3);
+      notes.push(`Paid the lords in used notes: ${fmt(fees*1.5)}. They noticed. (+3 heat)`); }
+    else { addHeat(8); addRep(-3); notes.push(`The lords went unpaid. Word spreads. (+8 heat, -3 rep)`); }
+  }
+  // laundering
+  const cap=FRONTS.reduce((a,f)=>a+(S.fronts[f.id]?f.launder:0),0);
+  if(cap>0 && S.cash>0){
+    const amt=Math.min(S.cash,cap);
+    const cleaned=Math.round(amt*0.9);
+    S.cash-=amt; S.bank+=cleaned; S.stats.laundered+=cleaned;
+    notes.push(`Fronts laundered ${fmt(amt)} → ${fmt(cleaned)} clean.`);
+  }
+  // heat decay
+  let cool=4 + countRole('fixer')*10;
+  if(S.heat>0){ const before=S.heat; S.heat=clamp(S.heat-cool,0,100);
+    notes.push(`Heat cooled ${before}→${S.heat}.`); }
+  // raid check
+  if(S.heat>=70 && Math.random()*100 < (S.heat-55)*1.5) raid();
+  // schedule today's random event
+  S.eventMin = (Math.random()<0.35) ? ri(10*60, 21*60) : null;
+  notes.forEach(n=>log(n));
+  toast(`🌅 <b>Dawn, day ${S.day}.</b> ` + (notes[0]||''), false);
+  save();
+}
+
+/* ── Raids ───────────────────────────────────────────────────────── */
+function raidSeverity(){ return (countRole('barrister')>0?0.5:1) * (up('vault')?0.5:1); }
+function raid(){
+  S.stats.raids++;
+  const sev=raidSeverity();
+  const owned=ESTATES.filter(e=>S.estates[e.id]?.owned);
+  const e=pick(owned);
+  const est=S.estates[e.id];
+  let plantsLost=0;
+  for(const p of est.plots){ if(p.strain){ plantsLost++; p.strain=null; p.grown=0; p.water=0; p.dry=false; } }
+  let seized=0;
+  for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.4*sev); S.inv[k]-=take; seized+=take; }
+  const fine=Math.round((500+S.day*80)*sev);
+  S.cash=Math.max(0,S.cash-fine);
+  S.heat=45;
+  const msg=`🚨 <b>RAID at ${e.name}!</b> ${plantsLost} plants destroyed, ${seized} units seized, ${fmt(fine)} in "fines".`
+    + (countRole('barrister')?' Your barrister softened the blow.':'');
+  log(msg.replace(/<[^>]+>/g,''), true);
+  showModal(`<h2>🚨 Police Raid</h2><p>${msg}</p>
+    <p class="muted">Keep heat below 70 — bribe, hire fixers, or lie low.</p>
+    <div class="choices"><button onclick="A.close()">Regroup</button></div>`);
+}
+function bigRaid(){
+  if(S._bigRaidLock) return; S._bigRaidLock=true;
+  setTimeout(()=>{ S._bigRaidLock=false; },100);
+  S.stats.raids++;
+  let seized=0;
+  for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.75); S.inv[k]-=take; seized+=take; }
+  for(const eid in S.estates){ for(const p of S.estates[eid].plots){ p.strain=null;p.grown=0;p.water=0;p.dry=false; } }
+  const fine=Math.round(S.cash*0.3);
+  S.cash-=fine; S.heat=55;
+  log(`MAJOR CRACKDOWN: every grow torched, ${seized} units and ${fmt(fine)} seized.`, true);
+  showModal(`<h2>🚁 Major Crackdown</h2>
+    <p>Heat hit 100. Helicopters over every estate. They torched <b>every plant</b>, seized <b>${seized} units</b> and ${fmt(fine)} in cash.</p>
+    <p class="muted">You kept your freedom — barely. Watch the heat bar.</p>
+    <div class="choices"><button onclick="A.close()">Start again, quietly</button></div>`);
+}
+
+/* ── Narrative events (The Gentlemen style) ──────────────────────── */
+const EVENTS = [
+  {
+    title:'The Heir Apparent', em:'🎓',
+    text:'Rupert, Lord Pemberton\'s idiot son, has stumbled into the cellar op. He is thrilled. He wants in. He is also extremely loud about it.',
+    cond:()=>S.estates.hollowbrook?.owned,
+    choices:[
+      {t:'Pay him to forget (£2,000 cash)', s:'Money buys silence', f(){ if(S.cash<2000)return 'Not enough cash.'; S.cash-=2000; log('Paid off Rupert.'); return 'Rupert buys a jet ski and forgets everything.'; }},
+      {t:'Bring him into the fold', s:'Free labour, loud labour', f(){ S.staff.push({role:'gardener',name:'Rupert',estate:bestGardenEstate()}); addHeat(6); log('Recruited Rupert as a gardener.'); return 'Rupert becomes an enthusiastic (free-hire) gardener. +6 heat, because Rupert.'; }},
+      {t:'Frighten him properly', s:'A reputation is a currency', f(){ addRep(12); if(Math.random()<0.3){ addHeat(20); return 'Rupert soiled himself, gained your respect... then told a policeman anyway. +12 rep, +20 heat.'; } return 'Rupert will never speak of this. Word of your menace spreads. +12 rep.'; }},
+    ]
+  },
+  {
+    title:'Dagger Eddie Comes Calling', em:'🗡️',
+    text:'Eddie "The Dagger" Okafor runs the east side. He offers to buy your entire stock — at 60% of value, in cash, no heat, no fuss.',
+    cond:()=>invTotal()>=10,
+    choices:[
+      {t:'Sell the lot', s:'Fast, safe, cheap', f(){ let tot=0; for(const k in S.inv){ tot+=Math.round(S.inv[k]*strain(k).value*0.6); S.stats.sold+=S.inv[k]; S.inv[k]=0; } earnCash(tot); log(`Sold everything to Dagger Eddie for ${fmt(tot)}.`); return `Eddie's men load the van. ${fmt(tot)} cash, zero heat.`; }},
+      {t:'Decline, politely', s:'Keep your margins', f(){ addRep(5); return 'Eddie smiles thinly. "Another time." Standing firm earns respect. +5 rep.'; }},
+      {t:'Counter: he retails for YOU', s:'Bold. Risky.', f(){ if(Math.random()<0.45){ addRep(20); S.staff.push({role:'dealer',name:'Eddie\'s crew',estate:null}); return 'Eddie laughs, then shakes on it. His crew now runs for you — a free Runner! +20 rep.'; } addHeat(12); return 'Eddie does not laugh. His crew makes noise all week. +12 heat.'; }},
+    ]
+  },
+  {
+    title:'The Journalist', em:'📰',
+    text:'A reporter from the Gazette has been photographing delivery vans near your estates. She has a notebook and ambitions.',
+    choices:[
+      {t:'Buy the story (£1,500 cash)', s:'Everyone has a price', f(){ if(S.cash<1500)return 'Not enough cash.'; S.cash-=1500; addHeat(-8); return 'She takes a "consultancy fee" and develops sudden amnesia. -8 heat.'; }},
+      {t:'Lie low a while', s:'Lose the day', f(){ addHeat(-15); S.min=Math.max(S.min, 22*60); return 'You shutter operations until dark. -15 heat, but the day is gone.'; }},
+      {t:'Charm her over dinner', s:'Rep 100+ recommended', f(){ if(S.rep>=100||Math.random()<0.35){ addRep(10); addHeat(-5); return 'She prints a glowing profile of a "local agricultural entrepreneur". +10 rep, -5 heat.'; } addHeat(15); return 'The dinner goes poorly. The headline goes worse. +15 heat.'; }},
+    ]
+  },
+  {
+    title:'A Flutter at the Club', em:'🥊',
+    text:'The Marquess Boxing Club hosts an unlicensed bout tonight. Big Tam is 3-to-1 against, and you happen to know his opponent had a heavy lunch.',
+    choices:[
+      {t:'Bet £1,000 on Big Tam', s:'50/50 for triple', f(){ if(S.cash<1000)return 'Not enough cash.'; S.cash-=1000; if(Math.random()<0.5){ earnCash(3000); return 'Big Tam flattens him in round two. +£3,000!'; } return 'The heavy lunch was, apparently, spinach. You lose £1,000.'; }},
+      {t:'Keep your money', s:'Gambling is for lords', f(){ return 'You sip your drink and watch lords lose fortunes. Educational.'; }},
+    ]
+  },
+  {
+    title:'Invitation: The Shoot', em:'🦆',
+    text:'Lady Ravenswood invites you to a pheasant shoot with half the county\'s aristocracy. Contacts like these open cellar doors.',
+    choices:[
+      {t:'Attend, impeccably dressed', s:'+rep, costs £500 cash', f(){ if(S.cash<500)return 'Not enough cash.'; S.cash-=500; addRep(20); return 'You miss every pheasant but hit it off with three lords. +20 rep.'; }},
+      {t:'Send apologies', s:'Business first', f(){ return 'You stay home and count money. Also a fine afternoon.'; }},
+    ]
+  },
+  {
+    title:'The Agronomist', em:'🧪',
+    text:'A travelling Dutch agronomist, smelling faintly of victory, offers premium genetics at half price — cash only, today only.',
+    choices:[
+      {t:'Buy 3 discount seeds', s:'Half price, next tier up', f(){
+        const next=STRAINS.filter(s=>s.rep>S.rep)[0]||STRAINS[STRAINS.length-1];
+        const cost=Math.round(next.seed*0.5*3);
+        if(S.cash<cost)return `Not enough cash (need ${fmt(cost)}).`;
+        S.cash-=cost; S.seeds[next.id]=(S.seeds[next.id]||0)+3;
+        return `You buy 3× ${next.name} seeds for ${fmt(cost)}. They're in your seed stash — plantable even below rep requirement.`; }},
+      {t:'Decline', s:'Trust no one in clogs', f(){ return 'He shrugs and pedals off into the mist.'; }},
+    ]
+  },
+  {
+    title:'The Policeman\'s Ball', em:'🎗️',
+    text:'The Police Benevolent Fund is holding its annual charity ball. Donations are, of course, entirely voluntary and enormously appreciated.',
+    cond:()=>S.heat>=20,
+    choices:[
+      {t:'Donate £2,500 (cash)', s:'-25 heat', f(){ if(S.cash<2500)return 'Not enough cash.'; S.cash-=2500; addHeat(-25); S.stats.bribes++; return 'Your generosity is noted at the highest levels. -25 heat.'; }},
+      {t:'Donate nothing', s:'Principles are free', f(){ return 'You keep your money and your principles. The chief inspector keeps your file.'; }},
+    ]
+  },
+  {
+    title:'Sticky Fingers', em:'🫳',
+    text:'Your books don\'t balance. One of your runners has been skimming — about £400 so far, you reckon.',
+    cond:()=>countRole('dealer')>0,
+    choices:[
+      {t:'Sack them on the spot', s:'Lose the runner', f(){ const i=S.staff.findIndex(s=>s.role==='dealer'); S.staff.splice(i,1); addRep(8); return 'Publicly, memorably sacked. The rest of the crew stands very straight. +8 rep.'; }},
+      {t:'Dock wages, keep them', s:'Recover £400', f(){ earnCash(400); addRep(-4); return 'You take it out of their pay. They stay, sullenly. +£400, -4 rep.'; }},
+      {t:'Let it slide', s:'Loyalty has a price', f(){ addRep(-8); return 'Word gets round that you can be skimmed. -8 rep.'; }},
+    ]
+  },
+  {
+    title:'A Private Arrangement', em:'🥂',
+    text:'A viscount with famous parties wants a discreet bulk order: 15 units of your finest, paid in spotless money through his family office.',
+    cond:()=>invTotal()>=15,
+    choices:[
+      {t:'Supply him (15 best units)', s:'150% value, straight to BANK', f(){
+        let need=15, tot=0;
+        const have=Object.keys(S.inv).filter(k=>S.inv[k]>0).sort((a,b)=>strain(b).value-strain(a).value);
+        for(const k of have){ const q=Math.min(need,S.inv[k]); S.inv[k]-=q; need-=q; tot+=Math.round(q*strain(k).value*1.5); S.stats.sold+=q; if(!need)break; }
+        S.bank+=tot; S.stats.earned+=tot; addRep(15);
+        return `The family office wires ${fmt(tot)} — clean as choirboys. +15 rep.`; }},
+      {t:'Decline', s:'Too many witnesses', f(){ return 'The viscount pouts and orders champagne instead.'; }},
+    ]
+  },
+  {
+    title:'Fire in the Cellar!', em:'🔥',
+    text:'A lamp has tipped over at one of your grows. Smoke is curling under the cellar door.',
+    cond:()=>anyPlants(),
+    choices:[
+      {t:'Pay the brigade quietly (£800 cash)', s:'Save the crop', f(){ if(S.cash<800)return 'Not enough cash.'; S.cash-=800; return 'Four firemen, one bribe, zero paperwork. The crop survives.'; }},
+      {t:'Let it burn', s:'Lose plants at one estate', f(){ const eids=Object.keys(S.estates).filter(id=>S.estates[id].owned&&S.estates[id].plots.some(p=>p.strain)); const eid=pick(eids); let n=0; for(const p of S.estates[eid].plots){ if(p.strain){n++; p.strain=null;p.grown=0;p.water=0;p.dry=false;} } addHeat(5); return `${n} plants at ${ESTATES.find(e=>e.id===eid).name} go up in fragrant smoke. +5 heat.`; }},
+    ]
+  },
+  {
+    title:'Toffs\' Poker Night', em:'🃏',
+    text:'You\'re invited to a high-stakes table at Ashcombe Hall. The Duke plays badly and pays promptly — by bank transfer.',
+    cond:()=>S.estates.ashcombe?.owned,
+    choices:[
+      {t:'Buy in (£2,000 cash)', s:'40% to win £5,000 clean', f(){ if(S.cash<2000)return 'Not enough cash.'; S.cash-=2000; if(Math.random()<0.4){ S.bank+=5000; return 'You fold when you should and raise when you must. +£5,000, wired clean.'; } return 'The Duke, astonishingly, had the flush. -£2,000.'; }},
+      {t:'Watch from the bar', s:'Free entertainment', f(){ addRep(3); return 'You network over whisky instead. +3 rep.'; }},
+    ]
+  },
+  {
+    title:'A Rat in the Walls', em:'🐀',
+    text:'Someone has been talking to the constabulary about vans, cellars and "an agricultural smell".',
+    choices:[
+      {t:'Have the fixer handle it', s:'Requires a Fixer', f(){ if(!countRole('fixer'))return 'You don\'t employ a Fixer.'; addHeat(-5); return 'Your fixer identifies the rat and buys them a one-way ticket to Marbella. -5 heat.'; }},
+      {t:'Weather it', s:'+12 heat', f(){ addHeat(12); return 'The whispers reach the station. +12 heat.'; }},
+    ]
+  },
+];
+function anyPlants(){ return Object.values(S.estates).some(e=>e.owned&&e.plots.some(p=>p.strain)); }
+function bestGardenEstate(){
+  const owned=ESTATES.filter(e=>S.estates[e.id]?.owned);
+  owned.sort((a,b)=>gardenersAt(a.id)-gardenersAt(b.id));
+  return owned[0].id;
+}
+function fireEvent(){
+  const pool=EVENTS.filter(e=>!e.cond||e.cond());
+  if(!pool.length) return;
+  pendingEvent=pick(pool);
+  const e=pendingEvent;
+  showModal(`<h2>${e.em} ${e.title}</h2><p>${e.text}</p>
+    <div class="choices">${e.choices.map((c,i)=>
+      `<button onclick="A.evChoice(${i})">${c.t}<small>${c.s}</small></button>`).join('')}</div>`);
+}
+
+/* ── Actions (bound to UI) ───────────────────────────────────────── */
+const A = {
+  tab(t){ S.tab=t; render(); },
+  speed(n){ S.speed=n; renderHUD(); document.querySelectorAll('#speed button').forEach(b=>b.classList.remove('on'));
+    const el=$('sp'+n); if(el) el.classList.add('on'); },
+  close(){ closeModal(); },
+
+  evChoice(i){
+    if(!pendingEvent) return;
+    const res=pendingEvent.choices[i].f();
+    if(res && (res.startsWith('Not enough')||res.startsWith('You don'))){ toast(res,true); return; }
+    log(`${pendingEvent.title}: ${res.replace(/<[^>]+>/g,'')}`);
+    showModal(`<h2>${pendingEvent.em} ${pendingEvent.title}</h2><p>${res}</p>
+      <div class="choices"><button onclick="A.close()">Carry on</button></div>`);
+    pendingEvent=null; save();
+  },
+
+  plot(eid,i){
+    const p=S.estates[eid].plots[i];
+    if(!p.strain){ this.pickStrain(eid,i); return; }
+    const st=strain(p.strain);
+    if(p.grown>=st.grow){ harvestPlot(eid,p,false); render(); save(); return; }
+    p.water=100; toast(`💧 Watered the ${st.name}.`); render();
+  },
+  pickStrain(eid,i){
+    const rows=STRAINS.map(s=>{
+      const stash=S.seeds[s.id]||0;
+      const unlocked=S.rep>=s.rep||stash>0;
+      const afford=S.cash>=s.seed||stash>0;
+      const label = stash>0 ? `${stash} in stash` : fmt(s.seed);
+      return `<button ${(!unlocked||!afford)?'disabled':''} onclick="A.plant('${eid}',${i},'${s.id}')">
+        ${s.em} <b>${s.name}</b> — ${label}
+        <small>${unlocked?`${s.blurb} · grows ${Math.round(s.grow/60)}h · ~${s.yield} units @ ${fmt(s.value)}`
+          :`🔒 Requires ${s.rep} rep`}</small></button>`;
+    }).join('');
+    showModal(`<h2>🌱 Plant a strain</h2><p class="muted">Seeds are bought with street cash.</p>
+      <div class="choices">${rows}<button class="ghost" onclick="A.close()">Cancel</button></div>`);
+  },
+  plant(eid,i,sid){
+    const st=strain(sid);
+    if(S.seeds[sid]>0) S.seeds[sid]--;
+    else if(S.cash>=st.seed) S.cash-=st.seed;
+    else { toast('Not enough cash.',true); return; }
+    const p=S.estates[eid].plots[i];
+    p.strain=sid; p.grown=0; p.water=100; p.dry=false;
+    closeModal(); toast(`Planted ${st.em} ${st.name}.`); save();
+  },
+  autoReplant(eid){ S.estates[eid].autoReplant=!S.estates[eid].autoReplant; render(); save(); },
+
+  buyEstate(id){
+    const e=ESTATES.find(x=>x.id===id);
+    if(S.bank<e.cost){ toast('Lords only accept clean bank money.',true); return; }
+    S.bank-=e.cost;
+    S.estates[id]={owned:true, autoReplant:false, plots:mkPlots(e.plots)};
+    log(`Leased ${e.name} from ${e.lord}.`);
+    toast(`🏛️ <b>${e.name}</b> is yours. ${e.plots} plots.`);
+    render(); save();
+  },
+
+  hire(role){
+    const r=ROLES[role];
+    if(role==='barrister'&&countRole('barrister')>=1){ toast('One barrister is quite enough.',true); return; }
+    if(S.cash<r.hire){ toast('Not enough cash.',true); return; }
+    S.cash-=r.hire;
+    const rec={role, name:pick(NAMES), estate:role==='gardener'?bestGardenEstate():null};
+    S.staff.push(rec);
+    log(`Hired ${r.name} ${rec.name}${rec.estate?` for ${ESTATES.find(e=>e.id===rec.estate).name}`:''}.`);
+    toast(`${r.em} Hired <b>${rec.name}</b> the ${r.name}.`);
+    render(); save();
+  },
+  fire(idx){
+    const s=S.staff[idx]; if(!s) return;
+    S.staff.splice(idx,1);
+    log(`Let ${s.name} go.`);
+    render(); save();
+  },
+  moveGardener(idx){
+    const s=S.staff[idx]; if(!s||s.role!=='gardener') return;
+    const owned=ESTATES.filter(e=>S.estates[e.id]?.owned);
+    const cur=owned.findIndex(e=>e.id===s.estate);
+    s.estate=owned[(cur+1)%owned.length].id;
+    render(); save();
+  },
+
+  buyFront(id){
+    const f=FRONTS.find(x=>x.id===id);
+    if(S.cash<f.cost){ toast('Not enough cash.',true); return; }
+    S.cash-=f.cost; S.fronts[id]=true;
+    log(`Acquired ${f.name}. Laundering +${fmt(f.launder)}/day.`);
+    toast(`${f.em} <b>${f.name}</b> acquired.`);
+    render(); save();
+  },
+  buyUpgrade(id){
+    const u=UPGRADES.find(x=>x.id===id);
+    if(S.cash<u.cost){ toast('Not enough cash.',true); return; }
+    S.cash-=u.cost; S.upgrades[id]=true;
+    log(`Upgrade: ${u.name}.`);
+    toast(`${u.em} <b>${u.name}</b> installed.`);
+    render(); save();
+  },
+  bribe(){
+    const cost=Math.round(300+S.heat*25);
+    if(S.cash<cost){ toast('Not enough cash.',true); return; }
+    if(S.heat<5){ toast('Heat is already negligible.',true); return; }
+    S.cash-=cost; addHeat(-20); S.stats.bribes++;
+    log(`Bribe paid: ${fmt(cost)}, -20 heat.`);
+    toast(`🤫 Palms greased. <b>-20 heat</b>.`);
+    render(); save();
+  },
+
+  accept(id){ const o=S.offers.find(x=>x.id===id); if(o) sellToOffer(o); save(); },
+  haggle(id){
+    const o=S.offers.find(x=>x.id===id); if(!o||o.haggled) return;
+    o.haggled=true;
+    const winP=up('tailor')?0.75:0.55;
+    if(Math.random()<winP){ o.price=Math.round(o.price*1.25); toast(`😏 They blinked. Price now ${fmt(o.price)}/ea.`); }
+    else if(Math.random()<0.4){ S.offers=S.offers.filter(x=>x.id!==id); toast('They walked away.',true); }
+    else toast('They won\'t budge, but they\'ll still buy.');
+    render();
+  },
+  decline(id){ S.offers=S.offers.filter(x=>x.id!==id); render(); },
+
+  sleep(){
+    if(modalOpen) return;
+    // fast-forward to the next 06:00 dawn in 10-minute steps
+    let guard=200;
+    while(guard-->0){
+      S.min+=10; S.absMin+=10;
+      if(S.min>=1440) S.min-=1440;
+      for(let i=0;i<10;i++) minutePlants();
+      minuteDealers();
+      if(S.min>=360 && S.min<370){ S.min=360; settle(); break; }
+    }
+    S.minF=S.min;
+    S.offers=[];
+    toast('🌙 You lie low until dawn.');
+    render(); save();
+  },
+
+  buyExit(){
+    if(S.bank<EXIT_COST){ toast('Not enough clean money.',true); return; }
+    S.bank-=EXIT_COST; S.won=true; S.speed=0;
+    showModal(`<h2>🏝️ The Gentleman's Exit</h2>
+      <p>Papers signed. Assets legitimised. A villa on the Riviera, a knighthood pending, and not a single fingerprint anywhere.</p>
+      <p><b>You won in ${S.day} days.</b></p>
+      <p class="muted">Sold ${S.stats.sold} units · earned ${fmt(S.stats.earned)} · laundered ${fmt(S.stats.laundered)} · survived ${S.stats.raids} raids.</p>
+      <div class="choices"><button class="gold" onclick="A.newGame(true)">New Empire</button>
+      <button class="ghost" onclick="A.close()">Linger a while</button></div>`);
+    save();
+  },
+  newGame(force){
+    if(!force && !confirm('Abandon this empire and start fresh?')) return;
+    localStorage.removeItem(SAVE_KEY);
+    S=freshState(); closeModal(); intro(); render();
+  },
+};
+window.A=A;
+
+/* ── Rendering ───────────────────────────────────────────────────── */
+function renderHUD(){
+  $('clock').textContent=clockStr();
+  $('hCash').textContent=fmt(S.cash);
+  $('hBank').textContent=fmt(S.bank);
+  $('hRep').textContent=S.rep;
+  $('hHeat').textContent=Math.round(S.heat);
+  $('heatfill').style.width=S.heat+'%';
+  const b=$('bdgOffers');
+  if(S.offers.length){ b.textContent=S.offers.length; b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+  document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));
+  const tb=$('tab-'+S.tab); if(tb) tb.classList.add('on');
+  document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('on'));
+  const sp=$('sp'+S.speed); if(sp) sp.classList.add('on');
+}
+
+function render(){
+  renderHUD();
+  if(modalOpen) return;
+  const v=$('view');
+  ({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, ledger:rLedger}[S.tab]||rGrow)(v);
+}
+
+function rGrow(v){
+  let h='';
+  for(const e of ESTATES){
+    const owned=S.estates[e.id]?.owned;
+    if(owned){
+      const est=S.estates[e.id];
+      const g=gardenersAt(e.id);
+      h+=`<div class="card"><div class="rowline"><h3>🏛️ ${e.name}</h3><span class="spacer"></span>
+        ${e.fee?`<span class="pill">${fmt(e.fee)}/day to ${e.lord}</span>`:''}
+        <span class="pill">${g?`🧑‍🌾 ${g} gardener${g>1?'s':''}`:'no gardener'}</span></div>
+        <div class="sub">${e.blurb}</div>
+        <div class="plots">${est.plots.map((p,i)=>plotCell(e.id,p,i)).join('')}</div>
+        <div class="rowline" style="margin-top:9px">
+          <button class="ghost" onclick="A.autoReplant('${e.id}')">${est.autoReplant?'✅':'⬜'} Auto-replant (gardener buys seeds)</button>
+        </div></div>`;
+    } else {
+      const can=S.rep>=e.rep;
+      h+=`<div class="card" style="opacity:${can?1:.55}">
+        <div class="rowline"><h3>🔒 ${e.name}</h3><span class="spacer"></span><span class="pill">${e.plots} plots</span></div>
+        <div class="sub">${e.blurb}<br><b>${e.lord}</b> asks <b class="money">${fmt(e.cost)}</b> (bank) + ${fmt(e.fee)}/day.</div>
+        <div class="rowline" style="margin-top:9px">
+          ${can?`<button class="gold" onclick="A.buyEstate('${e.id}')" ${S.bank<e.cost?'disabled':''}>Lease for ${fmt(e.cost)}</button>`
+              :`<span class="pill">Requires ${e.rep} rep (you have ${S.rep})</span>`}
+        </div></div>`;
+    }
+  }
+  v.innerHTML=h;
+}
+function plotCell(eid,p,i){
+  if(!p.strain) return `<div class="plot" onclick="A.plot('${eid}',${i})"><span class="em">➕</span><span class="nm">Plant</span></div>`;
+  const st=strain(p.strain);
+  const pct=Math.min(100,Math.round(p.grown/st.grow*100));
+  const ready=p.grown>=st.grow;
+  return `<div class="plot ${ready?'ready':''} ${(!ready&&p.water<=0)?'dry':''}" onclick="A.plot('${eid}',${i})">
+    <span class="em">${ready?'✨':st.em}</span>
+    <span class="nm">${ready?'HARVEST':st.name}</span>
+    ${ready?'':`<span class="bar"><i style="width:${pct}%"></i></span>
+    <span class="bar w"><i style="width:${Math.round(p.water)}%"></i></span>
+    <span class="nm">${(!ready&&p.water<=0)?'💀 needs water!':pct+'%'}</span>`}
+  </div>`;
+}
+
+function rStreet(v){
+  let h='<div class="card"><h3>📦 Inventory</h3>';
+  const keys=Object.keys(S.inv).filter(k=>S.inv[k]>0);
+  h+= keys.length ? keys.map(k=>{const st=strain(k);
+      return `<div class="invrow">${st.em} <b>${st.name}</b><span class="spacer"></span>
+        <span>${S.inv[k]} units</span><span class="muted">~${fmt(st.value)}/ea</span></div>`;}).join('')
+    : '<div class="sub">Empty. Harvest something — buyers don\'t wait for excuses.</div>';
+  h+='</div>';
+
+  h+='<div class="card"><h3>🤝 Street Offers</h3><div class="sub">Buyers appear 09:00–02:00. Haggle once per buyer. Every deal adds heat.</div></div>';
+  if(!S.offers.length) h+='<div class="card"><div class="sub" style="text-align:center">The street is quiet… for now.</div></div>';
+  for(const o of S.offers){
+    const st=strain(o.strain);
+    const have=S.inv[o.strain]||0;
+    const q=Math.min(o.qty,have);
+    const mins=Math.max(0,o.expires-abs());
+    h+=`<div class="card offer"><div class="rowline">
+      <b>${st.em} ${o.qty}× ${st.name}</b><span class="spacer"></span>
+      <span class="price money">${fmt(o.price)}/ea</span></div>
+      <div class="sub">Total ${fmt(o.price*q)} for your ${q} · +${o.heat} heat · leaves in ${mins} min ${have<o.qty?`· <span class="bad">you only have ${have}</span>`:''}</div>
+      <div class="offbtns">
+        <button class="gold" onclick="A.accept(${o.id})" ${q<=0?'disabled':''}>Sell ${q}</button>
+        <button onclick="A.haggle(${o.id})" ${o.haggled?'disabled':''}>Haggle</button>
+        <button class="ghost" onclick="A.decline(${o.id})">Decline</button>
+      </div></div>`;
+  }
+  const d=countRole('dealer');
+  h+=`<div class="card"><h3>🕶️ Runners</h3><div class="sub">${d?`${d} runner${d>1?'s':''} moving product automatically at 80% value (10:00–22:00).`:'No runners. Hire some in Crew to sell while you sleep.'}</div></div>`;
+  v.innerHTML=h;
+}
+
+function rCrew(v){
+  let h='<div class="card"><h3>🎩 The Firm</h3><div class="sub">Wages come out of street cash every dawn. Miss payroll and someone walks.</div></div>';
+  for(const role in ROLES){
+    const r=ROLES[role];
+    h+=`<div class="card"><div class="rowline">
+      <h3>${r.em} ${r.name}</h3><span class="spacer"></span>
+      <button class="gold hirebtn" onclick="A.hire('${role}')" ${S.cash<r.hire?'disabled':''}>Hire ${fmt(r.hire)}</button></div>
+      <div class="sub">${r.blurb} · Wage ${fmt(r.wage)}/day</div></div>`;
+  }
+  if(S.staff.length){
+    h+='<div class="card"><h3>Payroll</h3>'+S.staff.map((s,i)=>{
+      const r=ROLES[s.role];
+      return `<div class="invrow">${r.em} <b>${s.name}</b> <span class="muted">${r.name}${s.estate?` @ ${ESTATES.find(e=>e.id===s.estate).name}`:''}</span>
+        <span class="spacer"></span>
+        ${s.role==='gardener'?`<button class="ghost" onclick="A.moveGardener(${i})">↪ Move</button>`:''}
+        <button class="danger" onclick="A.fire(${i})">Sack</button></div>`;
+    }).join('')+`<div class="sub" style="margin-top:8px">Total wages: ${fmt(S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0))}/day</div></div>`;
+  }
+  v.innerHTML=h;
+}
+
+function rBiz(v){
+  const cap=FRONTS.reduce((a,f)=>a+(S.fronts[f.id]?f.launder:0),0);
+  let h=`<div class="card"><h3>🧺 The Wash</h3>
+    <div class="sub">Street <b class="dirty">cash</b> buys seeds, staff and bribes — but lords and lawyers only accept <b class="money">bank</b> money.
+    Fronts launder cash into bank every dawn (10% fee). Current capacity: <b>${fmt(cap)}/day</b>.</div></div>`;
+  for(const f of FRONTS){
+    const owned=S.fronts[f.id];
+    h+=`<div class="card"><div class="rowline"><h3>${f.em} ${f.name}</h3><span class="spacer"></span>
+      ${owned?`<span class="pill">✅ ${fmt(f.launder)}/day</span>`
+        :`<button class="gold" onclick="A.buyFront('${f.id}')" ${S.cash<f.cost?'disabled':''}>Buy ${fmt(f.cost)}</button>`}</div>
+      <div class="sub">${f.blurb}${owned?'':` · launders ${fmt(f.launder)}/day`}</div></div>`;
+  }
+  const bribeCost=Math.round(300+S.heat*25);
+  h+=`<div class="card"><div class="rowline"><h3>🤫 Grease Palms</h3><span class="spacer"></span>
+    <button onclick="A.bribe()" ${S.cash<bribeCost||S.heat<5?'disabled':''}>Bribe ${fmt(bribeCost)}</button></div>
+    <div class="sub">-20 heat, price scales with how hot you are. Heat above 70 risks dawn raids; 100 triggers a crackdown.</div></div>`;
+  h+='<div class="card"><h3>⚙️ Upgrades</h3></div>';
+  for(const u of UPGRADES){
+    const owned=up(u.id);
+    h+=`<div class="card"><div class="rowline"><h3>${u.em} ${u.name}</h3><span class="spacer"></span>
+      ${owned?'<span class="pill">✅ Installed</span>'
+        :`<button class="gold" onclick="A.buyUpgrade('${u.id}')" ${S.cash<u.cost?'disabled':''}>Buy ${fmt(u.cost)}</button>`}</div>
+      <div class="sub">${u.blurb}</div></div>`;
+  }
+  h+=`<div class="card" style="border-color:var(--gold-dim)"><div class="rowline">
+    <h3>🏝️ The Gentleman's Exit</h3><span class="spacer"></span>
+    <button class="gold" onclick="A.buyExit()" ${S.bank<EXIT_COST?'disabled':''}>Retire ${fmt(EXIT_COST)}</button></div>
+    <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(EXIT_COST)}</b> in clean money. This wins the game.</div></div>`;
+  v.innerHTML=h;
+}
+
+function rLedger(v){
+  const st=S.stats;
+  let h=`<div class="statgrid">
+    <div class="card"><div class="big">${fmt(st.earned)}</div><div class="sub">Total earned</div></div>
+    <div class="card"><div class="big">${fmt(st.laundered)}</div><div class="sub">Laundered</div></div>
+    <div class="card"><div class="big">${st.sold}</div><div class="sub">Units sold</div></div>
+    <div class="card"><div class="big">${st.harvests}</div><div class="sub">Harvests</div></div>
+    <div class="card"><div class="big">${st.raids}</div><div class="sub">Raids survived</div></div>
+    <div class="card"><div class="big">${st.daysPlayed}</div><div class="sub">Days in the game</div></div>
+  </div>`;
+  h+='<div class="card"><h3>📜 The Ledger</h3><div class="loglist">'+
+    (S.log.length?S.log.map(l=>`<div>${l.bad?'⚠️ ':''}<b>${l.t}</b> — ${l.msg}</div>`).join(''):'<div>Nothing yet. Get to work.</div>')+
+    '</div></div>';
+  h+=`<div class="card"><div class="rowline"><h3>💾 Save</h3><span class="spacer"></span>
+    <button class="danger" onclick="A.newGame()">New Game</button></div>
+    <div class="sub">Progress autosaves to this device every few seconds. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
+  v.innerHTML=h;
+}
+
+/* ── Intro ───────────────────────────────────────────────────────── */
+function intro(){
+  S.seenIntro=true;
+  showModal(`<h2>🌿 Emerald Estates</h2>
+    <p class="serif" style="font-style:italic">"The British aristocracy is the finest real-estate portfolio in the world — and every acre of it is broke."</p>
+    <p>You've inherited two things: a leaky allotment shed and an idea. Grow product, sell it on the street, launder the takings, and lease the cellars of England's most desperate lords — until you're rich enough to walk away spotless.</p>
+    <p class="muted">🌱 <b>Grow</b>: plant, water, harvest.<br>
+    🤝 <b>Street</b>: sell to buyers, haggle hard.<br>
+    🎩 <b>Crew</b>: hire gardeners, runners, fixers.<br>
+    🏛️ <b>Business</b>: launder cash → bank, keep the heat down.<br>
+    🏝️ Bank ${fmt(EXIT_COST)} clean to win.</p>
+    <div class="choices"><button class="gold" onclick="A.close()">Begin</button></div>`);
+}
+
+/* ── Main loop ───────────────────────────────────────────────────── */
+const SPEEDS={0:0,1:1,2:2,3:4};
+function tick(){
+  if(!S || S.won){ renderHUD(); return; }
+  if(modalOpen) return;
+  const rate=SPEEDS[S.speed]||0;
+  if(rate===0){ renderHUD(); return; }
+  S.minF += rate*0.25;
+  while(S.min < Math.floor(S.minF)){
+    S.min++; S.absMin++;
+    if(S.min>=1440){ S.min=0; S.minF-=1440; }
+    minutePlants();
+    minuteOffers();
+    minuteDealers();
+    if(S.min===360) settle();
+    if(S.eventMin!==null && S.min===S.eventMin && S.eventDoneDay!==S.day){
+      S.eventDoneDay=S.day; fireEvent();
+      break;
+    }
+  }
+  render();
+}
+
+/* ── Save / load ─────────────────────────────────────────────────── */
+function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){} }
+function load(){
+  try{
+    const raw=localStorage.getItem(SAVE_KEY);
+    if(!raw) return null;
+    const s=JSON.parse(raw);
+    if(s && s.v===1){
+      if(s.absMin===undefined) s.absMin=(s.day-1)*1440+s.min;
+      return s;
+    }
+  }catch(e){}
+  return null;
+}
+
+/* ── Boot ────────────────────────────────────────────────────────── */
+S = load() || freshState();
+if(!S.seenIntro) intro();
+render();
+setInterval(tick, 250);
+setInterval(save, 15000);
+window.addEventListener('visibilitychange', ()=>{ if(document.hidden) save(); });
+// PWA
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(()=>{});
+}
+</script>
+</body>
+</html>
