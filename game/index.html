@@ -348,11 +348,27 @@ const ESTATES = [
 const ROLES = {
   gardener: {name:'Gardener',  em:'🧑‍🌾', hire:800,  wage:150, max:99, blurb:'Waters and harvests every plot at one estate, day and night.'},
   dealer:   {name:'Runner',    em:'🕶️', hire:1200, wage:200, max:99, blurb:'Moves product on the street automatically. Adds a little heat.'},
+  enforcer: {name:'Enforcer',  em:'🥊', hire:2000, wage:300, max:99, blurb:'Muscle. Takes corners from rival crews and holds your turf.'},
   fixer:    {name:'Fixer',     em:'🚬', hire:2500, wage:400, max:99, blurb:'Greases palms. Burns 10 heat every dawn.'},
   botanist: {name:'Botanist',  em:'🔬', hire:4000, wage:500, max:2,  blurb:'+15% harvest yield each. (Max 2)'},
   guard:    {name:'Gamekeeper',em:'🐕', hire:3000, wage:350, max:3,  blurb:'Each cuts dawn-raid chance by 20%. (Max 3)'},
   barrister:{name:'Barrister', em:'⚖️', hire:6000, wage:600, max:1,  blurb:'When the police come knocking, they leave with half as much. (Max 1)'},
 };
+const DISTRICTS = [
+  {id:'kettle',  name:'Kettle Lane Market', crew:'The Penny Boys',      income:300,  str:1, blurb:'Stalls, fences, and teenagers on push-bikes.'},
+  {id:'kirkdale',name:'The Kirkdale Estates',crew:'The Broadwater Set', income:700,  str:2, blurb:'Tower blocks. Whoever runs the stairwells runs the estate.'},
+  {id:'canal',   name:'The Canal District', crew:'The Ferrymen',        income:1500, str:3, blurb:'Narrowboats move more than tourists down here.'},
+  {id:'westend', name:'The West End Clubs', crew:'The Mayfair Firm',    income:3000, str:4, blurb:'Velvet ropes, VIP booths, and a very thirsty clientele.'},
+  {id:'docks',   name:'The Docklands',      crew:'The Dockside Syndicate',income:6000,str:5, blurb:'Containers in, containers out. The crown jewel of the city.'},
+];
+const LUXURY = [
+  {id:'watch', name:'Presidential Watch',       em:'⌚', cost:5000,   cur:'cash', rep:10, perk:'Haggling succeeds 5% more often.'},
+  {id:'motor', name:'Vintage Jaguar',           em:'🏎️', cost:15000,  cur:'bank', rep:20, perk:'Street buyers appear 15% more often.'},
+  {id:'boat',  name:'“The Sea Duchess”',        em:'🛥️', cost:35000,  cur:'bank', rep:25, perk:'Contracts get +1 day on the deadline.'},
+  {id:'horse', name:'Racehorse “Liquid Asset”', em:'🐎', cost:40000,  cur:'bank', rep:30, perk:'May win prize money at dawn. Occasionally needs a vet.'},
+  {id:'pent',  name:'Docklands Penthouse',      em:'🌃', cost:60000,  cur:'bank', rep:40, perk:'Heat cools 3 extra points every dawn.'},
+  {id:'art',   name:'Private Art Collection',   em:'🖼️', cost:100000, cur:'bank', rep:60, perk:"The Gentleman's Exit costs £50,000 less."},
+];
 const FRONTS = [
   {id:'butcher',    name:'Meat & Greet Butchers',     em:'🥩', cost:3000,  launder:400,   blurb:'Nobody audits sausages.'},
   {id:'laundrette', name:'Bubble Duchess Laundrette', em:'🫧', cost:8000,  launder:1000,  blurb:'Washing money and socks since Tuesday.'},
@@ -384,6 +400,9 @@ const ACH = [
   {id:'icecold',   em:'🧊', name:'Ice Cold',               desc:'Reach 200 rep with zero heat'},
   {id:'sold500',   em:'📦', name:'Volume Dealer',          desc:'Sell 500 units'},
   {id:'contract5', em:'📜', name:'Man of His Word',        desc:'Complete five contracts'},
+  {id:'turf1',     em:'🗺️', name:'First Blood',            desc:'Take your first corner'},
+  {id:'kingpin',   em:'🔱', name:'Top of the Food Chain',  desc:'Run every district in the city'},
+  {id:'lux3',      em:'💎', name:'A Taste for It',         desc:'Own three luxuries'},
   {id:'won',       em:'🏝️', name:"The Gentleman's Exit",   desc:'Retire spotless'},
 ];
 const EXIT_COST = 500000;
@@ -394,16 +413,16 @@ const SAVE_KEY = 'emerald_estates_v1';
 let S = null;
 function freshState(){
   return {
-    v:2, day:1, min:480, minF:480, absMin:480, speed:1, tab:'grow',
+    v:3, day:1, min:480, minF:480, absMin:480, speed:1, tab:'grow',
     cash:250, bank:0, heat:0, rep:0,
     inv:{}, seeds:{}, market:{},
     estates:{ shed:{ owned:true, autoReplant:false, plots:mkPlots(2) } },
-    staff:[], fronts:{}, upgrades:{},
+    staff:[], fronts:{}, upgrades:{}, turf:{}, luxury:{},
     offers:[], nextOfferId:1,
     contracts:[], nextContractId:1,
     eventMin:null, eventDoneDay:0,
     ach:{}, log:[], won:false,
-    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, daysPlayed:1},
+    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, daysPlayed:1},
     seenIntro:false,
   };
 }
@@ -436,6 +455,10 @@ function calcYield(st,dry){
 function dealHeat(qty){
   return Math.max(1, Math.round(qty*0.5*(up('burner')?0.7:1)*(up('scanner')?0.5:1)));
 }
+function lux(id){ return !!S.luxury[id]; }
+function exitCost(){ return EXIT_COST-(lux('art')?50000:0); }
+function ownedTurf(){ return DISTRICTS.filter(d=>S.turf[d.id]); }
+function unownedTurf(){ return DISTRICTS.filter(d=>!S.turf[d.id]); }
 
 function log(msg, bad){
   S.log.unshift({t:clockStr(), msg, bad:!!bad});
@@ -491,6 +514,10 @@ function chkAch(){
   if(S.rep>=200 && S.heat<=0) award('icecold');
   if(S.stats.sold>=500) award('sold500');
   if(S.stats.contracts>=5) award('contract5');
+  const t=ownedTurf().length;
+  if(t>=1) award('turf1');
+  if(t>=DISTRICTS.length) award('kingpin');
+  if(Object.keys(S.luxury).length>=3) award('lux3');
   if(S.won) award('won');
 }
 
@@ -540,7 +567,7 @@ function minuteOffers(){
   if(h<9 && h>2) return;
   if(S.offers.length>=3) return;
   const have = Object.keys(S.inv).filter(k=>S.inv[k]>0);
-  let chance = (1/90)*(1+S.rep/200)*(up('burner')?1.6:1);
+  let chance = (1/90)*(1+S.rep/200)*(up('burner')?1.6:1)*(lux('motor')?1.15:1);
   if(!have.length) chance/=4;
   if(Math.random()<chance) makeOffer(have);
 }
@@ -577,7 +604,7 @@ function genContract(){
   const avail=STRAINS.filter(s=>S.rep>=s.rep);
   const st=pick(avail.slice(-3));
   const qty=ri(10, 18+Math.floor(S.rep/40));
-  const days=ri(2,4);
+  const days=ri(2,4)+(lux('boat')?1:0);
   const c={id:S.nextContractId++, strain:st.id, qty, deadline:S.day+days, mult:+rnd(1.4,1.8).toFixed(2)};
   S.contracts.push(c);
   const pay=Math.round(qty*st.value*c.mult);
@@ -655,8 +682,32 @@ function settle(){
     S.cash-=amt; S.bank+=cleaned; S.stats.laundered+=cleaned;
     notes.push(`Fronts laundered ${fmt(amt)} → ${fmt(cleaned)} clean.`);
   }
+  // turf income & rival pressure
+  const held=ownedTurf();
+  if(held.length){
+    const inc=held.reduce((a,d)=>a+d.income,0);
+    earnCash(inc);
+    S.heat=clamp(S.heat+held.length,0,100);
+    notes.push(`Your corners kicked up ${fmt(inc)} street cash. (+${held.length} heat)`);
+    if(Math.random() < 0.12+0.03*held.length){
+      const d=pick(held);
+      if(countRole('enforcer')>=d.str){
+        addRep(5); S.cash=Math.max(0,S.cash-500);
+        notes.push(`${d.crew} moved on ${d.name} — your enforcers held the line. (+5 rep, £500 in medical bills)`);
+      } else {
+        delete S.turf[d.id]; addRep(-8);
+        notes.push(`${d.crew} took back ${d.name} overnight. (-8 rep)`);
+      }
+    }
+  }
+  // racehorse
+  if(lux('horse')){
+    const r=Math.random();
+    if(r<0.2){ const w=ri(1000,4000); S.bank+=w; S.stats.earned+=w; notes.push(`Liquid Asset romped home at Ascot: +${fmt(w)} (bank).`); }
+    else if(r<0.25){ S.cash=Math.max(0,S.cash-800); notes.push('Vet bill for Liquid Asset: £800. He regrets nothing.'); }
+  }
   // heat decay
-  let cool=4 + countRole('fixer')*10;
+  let cool=4 + countRole('fixer')*10 + (lux('pent')?3:0);
   if(S.heat>0){ const before=S.heat; S.heat=clamp(S.heat-cool,0,100);
     notes.push(`Heat cooled ${before}→${S.heat}.`); }
   // contracts: expire + maybe generate
@@ -904,6 +955,92 @@ const EVENTS = [
     ]
   },
   {
+    title:'A Message, Written in Petrol', em:'🔥',
+    text:'One of your vans is a smoking shell by morning. A note under the wiper, in careful handwriting: "Wrong side of the canal."',
+    cond:()=>ownedTurf().length>=1,
+    choices:[
+      {t:'Retaliate tonight', s:'Needs 2+ enforcers', f(){ if(countRole('enforcer')<2)return 'You don\'t have the muscle (need 2 enforcers).'; addRep(15); addHeat(10); return 'Your enforcers return the message with interest. The canal goes quiet. +15 rep, +10 heat.'; }},
+      {t:'Pay tribute (£2,000 cash)', s:'Buy the peace', f(){ if(S.cash<2000)return 'Not enough cash.'; S.cash-=2000; return 'An envelope changes hands. The vans stay unburnt. For now.'; }},
+      {t:'Ignore it', s:'Risk losing a corner', f(){ if(Math.random()<0.25&&ownedTurf().length){ const d=ownedTurf().sort((a,b)=>a.str-b.str)[0]; delete S.turf[d.id]; addRep(-6); return `Weakness invites wolves. ${d.crew} retook ${d.name}. -6 rep.`; } return 'You let it slide. Nothing happens — this time.'; }},
+    ]
+  },
+  {
+    title:'The Truce Summit', em:'🕊️',
+    text:'Every crew in the city has been summoned to the back room of a kebab shop. Neutral ground. The Syndicate wants "an understanding".',
+    cond:()=>ownedTurf().length>=2,
+    choices:[
+      {t:'Attend and talk peace', s:'-15 heat, +10 rep', f(){ addHeat(-15); addRep(10); return 'Handshakes, strong tea, careful promises. The city cools off. -15 heat, +10 rep.'; }},
+      {t:'Send apologies', s:'Stay unreadable', f(){ return 'Your empty chair says plenty. Nothing changes.'; }},
+      {t:'Flip the table', s:'War is good for the brand', f(){ addRep(20); addHeat(15); return 'You inform the room that the understanding is: it\'s all yours eventually. Legendary. Expensive. +20 rep, +15 heat.'; }},
+    ]
+  },
+  {
+    title:'A Snitch in the Firm', em:'🐍',
+    text:'A task-force detective has a new best friend — and the burner numbers they\'re quoting could only come from inside your operation.',
+    cond:()=>S.staff.length>=3,
+    choices:[
+      {t:'Let the fixer find them', s:'Requires a Fixer', f(){ if(!countRole('fixer'))return 'You don\'t employ a Fixer.'; addHeat(-10); return 'Your fixer traces the calls, has a quiet word, and the friendship ends. -10 heat.'; }},
+      {t:'Buy their silence (£2,500)', s:'Everyone has a number', f(){ if(S.cash<2500)return 'Not enough cash.'; S.cash-=2500; return 'The snitch develops expensive tastes and selective memory.'; }},
+      {t:'Change nothing', s:'+18 heat', f(){ addHeat(18); return 'The task force\'s whiteboard gains several new photographs. +18 heat.'; }},
+    ]
+  },
+  {
+    title:'Jumped on the High Road', em:'🚑',
+    text:'Two masked riders boxed in one of your runners at the lights. They know your routes and they\'re taxing them.',
+    cond:()=>countRole('dealer')>0,
+    choices:[
+      {t:'Send the enforcers', s:'Needs 2+ enforcers', f(){ if(countRole('enforcer')<2)return 'You don\'t have the muscle (need 2 enforcers).'; addRep(12); return 'The riders are found, the tax is refunded with apologies. Routes stay yours. +12 rep.'; }},
+      {t:'Pay their "road tax" (£1,500)', s:'Cheaper than a war', f(){ if(S.cash<1500)return 'Not enough cash.'; S.cash-=1500; return 'You pay. The riders move on to easier prey.'; }},
+      {t:'Pull runners off the street today', s:'Lose the day\'s sales', f(){ S.min=Math.max(S.min,21*60); return 'Everyone stays in. The street misses you; you miss the money.'; }},
+    ]
+  },
+  {
+    title:'Poaching Season', em:'🎣',
+    text:'The Mayfair Firm has offered your best enforcer double wages and a signing bonus. They\'re thinking about it. Loudly.',
+    cond:()=>countRole('enforcer')>0,
+    choices:[
+      {t:'Match it (£1,000 bonus)', s:'Keep your muscle', f(){ if(S.cash<1000)return 'Not enough cash.'; S.cash-=1000; addRep(4); return 'Money talks; loyalty listens. They stay, smug. +4 rep.'; }},
+      {t:'Remind them who found them', s:'70% they stay', f(){ if(Math.random()<0.7){ addRep(6); return 'A long look and a short speech. They stay — and mean it now. +6 rep.'; } const i=S.staff.findIndex(s=>s.role==='enforcer'); if(i>=0)S.staff.splice(i,1); addHeat(4); return 'They leave anyway, taking your patrol routes with them. +4 heat.'; }},
+      {t:'Let them walk', s:'No one is essential', f(){ const i=S.staff.findIndex(s=>s.role==='enforcer'); if(i>=0)S.staff.splice(i,1); return 'You shake hands at the door. Class, but you\'re lighter one enforcer.'; }},
+    ]
+  },
+  {
+    title:'The New Connect', em:'🔌',
+    text:'A supplier with a gold tooth and a shipping container offers premium genetics in bulk — 60% off. The catch: half the city\'s police are looking for that container.',
+    choices:[
+      {t:'Take the deal', s:'Cheap seeds, +12 heat', f(){ const st=STRAINS.filter(s=>S.rep>=s.rep).slice(-1)[0]; const cost=Math.round(st.seed*5*0.4); if(S.cash<cost)return `Not enough cash (need ${fmt(cost)}).`; S.cash-=cost; S.seeds[st.id]=(S.seeds[st.id]||0)+5; addHeat(12); return `5× ${st.name} seeds for ${fmt(cost)}. The container "was never here". +12 heat.`; }},
+      {t:'Walk away', s:'Too hot to touch', f(){ addRep(2); return 'Discipline is a superpower. The container gets seized a week later — without your name on it. +2 rep.'; }},
+    ]
+  },
+  {
+    title:'Video Shoot on the Corner', em:'📹',
+    text:'Local kids are filming a music video on your busiest corner. It\'s getting thousands of views — and the attention of everyone with a badge.',
+    cond:()=>ownedTurf().length>=1,
+    choices:[
+      {t:'Sponsor the video', s:'+15 rep, +10 heat', f(){ addRep(15); addHeat(10); return 'Your name is in the credits (tastefully). The corner becomes famous. So do you. +15 rep, +10 heat.'; }},
+      {t:'Move them along, politely', s:'-5 heat', f(){ addHeat(-5); return 'Filming relocates to a rival\'s corner. Their problem now. -5 heat.'; }},
+    ]
+  },
+  {
+    title:'Weakness in the Ranks', em:'⚔️',
+    text:'Half of a rival crew got arrested at a christening (long story). Their weakest corner is unguarded tonight.',
+    cond:()=>unownedTurf().length>0 && countRole('enforcer')>=1,
+    choices:[
+      {t:'Move tonight, quietly', s:'80% to take it free', f(){ const d=unownedTurf().sort((a,b)=>a.str-b.str)[0]; if(Math.random()<0.8){ S.turf[d.id]=true; S.stats.turf++; addRep(8); addHeat(5); return `${d.name} changes hands without a punch thrown. +8 rep, +5 heat.`; } addHeat(5); return 'The christening ended early. You melt back into the night, unbloodied but empty-handed. +5 heat.'; }},
+      {t:'Let it lie', s:'Opportunism has a smell', f(){ return 'You don\'t kick crews when they\'re down. The street remembers that too.'; }},
+    ]
+  },
+  {
+    title:"The Syndicate's Tax", em:'👔',
+    text:'Two very polite men from the Dockside Syndicate would like ten percent of your street cash. As a gesture. Of ongoing friendship.',
+    cond:()=>ownedTurf().length>=1 && !S.turf.docks && S.cash>=1000,
+    choices:[
+      {t:'Pay the ten percent', s:'Friendship is cheap at the price', f(){ const t=Math.floor(S.cash*0.1); S.cash-=t; return `You pay ${fmt(t)}. The polite men remain polite.`; }},
+      {t:'Refuse', s:'30% they hit a corner', f(){ if(Math.random()<0.3&&ownedTurf().length){ const d=ownedTurf().sort((a,b)=>a.str-b.str)[0]; delete S.turf[d.id]; addRep(-5); return `Three nights later, ${d.name} is theirs again. -5 rep.`; } addRep(8); return 'The polite men leave. Nothing happens. Sometimes the bluff is the whole hand. +8 rep.'; }},
+      {t:'Declare war on the docks', s:'+25 rep, +20 heat', f(){ addRep(25); addHeat(20); return 'You send back their envelope, empty, with a wharf timetable inside. The whole city holds its breath. +25 rep, +20 heat.'; }},
+    ]
+  },
+  {
     title:'Two Runners, One Wedding', em:'💍',
     text:'Two of your crew are getting married — to each other. They\'d like the reception at one of your estates. The whole firm is watching how you respond.',
     cond:()=>S.staff.length>=2,
@@ -1033,6 +1170,69 @@ const A = {
     toast(`${u.em} <b>${u.name}</b> installed.`);
     render(); save();
   },
+  withdraw(){
+    const amts=[1000,5000,25000];
+    const half=Math.floor(S.bank/2);
+    showModal(`<h2>🏦 Private Bank</h2>
+      <p class="muted">Balance: <b class="money">${fmt(S.bank)}</b>. Withdraw clean money as spendable street cash — free of charge. It is, after all, your money.</p>
+      <div class="choices">
+      ${amts.map(a=>`<button ${S.bank<a?'disabled':''} onclick="A.wd(${a})">Withdraw ${fmt(a)}</button>`).join('')}
+      <button ${half<=0?'disabled':''} onclick="A.wd(${half})">Withdraw half (${fmt(half)})</button>
+      <button ${S.bank<=0?'disabled':''} onclick="A.wd(${S.bank})">Withdraw everything (${fmt(S.bank)})</button>
+      <button class="ghost" onclick="A.close()">Cancel</button></div>`);
+  },
+  wd(a){
+    a=Math.min(Math.floor(a), S.bank);
+    if(a<=0) return;
+    S.bank-=a; S.cash+=a;
+    log(`Withdrew ${fmt(a)} from the bank.`);
+    toast(`🏦 Withdrew <b class="dirty">${fmt(a)}</b> in cash.`);
+    fxText('+'+fmt(a),'#d9b45b');
+    closeModal(); save();
+  },
+  buyLux(id){
+    const l=LUXURY.find(x=>x.id===id);
+    if(S.luxury[id]) return;
+    if(l.cur==='bank'){ if(S.bank<l.cost){ toast('Not enough clean money — luxuries need receipts.',true); return; } S.bank-=l.cost; }
+    else { if(S.cash<l.cost){ toast('Not enough cash.',true); return; } S.cash-=l.cost; }
+    S.luxury[id]=true;
+    addRep(l.rep);
+    log(`Acquired ${l.name}. (+${l.rep} rep)`);
+    toast(`${l.em} <b>${l.name}</b> is yours. +${l.rep} rep.`);
+    fxBurst(l.em,5);
+    chkAch(); render(); save();
+  },
+  takeover(id){
+    const d=DISTRICTS.find(x=>x.id===id);
+    if(!d||S.turf[id]) return;
+    const enf=countRole('enforcer');
+    const cost=d.str*1000;
+    if(enf<d.str){ toast(`You need at least ${d.str} enforcer${d.str>1?'s':''} for ${d.name}.`,true); return; }
+    if(S.cash<cost){ toast('Not enough cash to fund the move.',true); return; }
+    S.cash-=cost;
+    const p=Math.min(0.9, 0.5+0.15*(enf-d.str));
+    if(Math.random()<p){
+      S.turf[id]=true; addHeat(10); addRep(10*d.str); S.stats.turf++;
+      log(`Took ${d.name} from ${d.crew}. (+${10*d.str} rep, +10 heat)`);
+      fxBurst('⚔️',6); shake();
+      showModal(`<h2>⚔️ ${d.name} Is Yours</h2>
+        <p>Your enforcers moved at closing time. By sunrise, ${d.crew} were nursing bruises and the corner was yours.</p>
+        <p class="muted">+${fmt(d.income)}/day street cash at dawn · +${10*d.str} rep · +10 heat. They will want it back — keep ${d.str}+ enforcers on the books.</p>
+        <div class="choices"><button class="gold" onclick="A.close()">Run it</button></div>`);
+    } else {
+      addHeat(8);
+      const i=S.staff.findIndex(s=>s.role==='enforcer');
+      if(i>=0){ const lost=S.staff.splice(i,1)[0];
+        log(`Move on ${d.name} failed — ${lost.name} is in hospital. (+8 heat)`,true);
+        toast(`🚑 The move failed. <b>${lost.name}</b> is in hospital.`,true);
+      } else {
+        log(`Move on ${d.name} failed. (+8 heat)`,true);
+        toast('The move failed.',true);
+      }
+      shake();
+    }
+    chkAch(); render(); save();
+  },
   bribe(){
     const cost=Math.round(300+S.heat*25);
     if(S.cash<cost){ toast('Not enough cash.',true); return; }
@@ -1047,7 +1247,7 @@ const A = {
   haggle(id){
     const o=S.offers.find(x=>x.id===id); if(!o||o.haggled) return;
     o.haggled=true;
-    const winP=up('tailor')?0.75:0.55;
+    const winP=(up('tailor')?0.75:0.55)+(lux('watch')?0.05:0);
     if(Math.random()<winP){ o.price=Math.round(o.price*1.25); toast(`😏 They blinked. Price now ${fmt(o.price)}/ea.`); }
     else if(Math.random()<0.4){ S.offers=S.offers.filter(x=>x.id!==id); toast('They walked away.',true); }
     else toast('They won\'t budge, but they\'ll still buy.');
@@ -1073,8 +1273,8 @@ const A = {
   },
 
   buyExit(){
-    if(S.bank<EXIT_COST){ toast('Not enough clean money.',true); return; }
-    S.bank-=EXIT_COST; S.won=true; S.speed=0;
+    if(S.bank<exitCost()){ toast('Not enough clean money.',true); return; }
+    S.bank-=exitCost(); S.won=true; S.speed=0;
     let title="🏝️ The Gentleman's Exit",
         flavor='Papers signed. Assets legitimised. A villa on the Riviera, a knighthood pending, and not a single fingerprint anywhere.';
     if(S.stats.raids===0){ title='🕊️ The Immaculate Exit';
@@ -1301,6 +1501,22 @@ function rStreet(v){
   }
   const d=countRole('dealer');
   h+=`<div class="card"><h3>🕶️ Runners</h3><div class="sub">${d?`${d} runner${d>1?'s':''} moving product automatically at ${up('cellar')?90:80}% value (10:00–22:00).`:'No runners. Hire some in Crew to sell while you sleep.'}</div></div>`;
+
+  const enf=countRole('enforcer');
+  h+=`<div class="card"><h3>🗺️ Turf</h3><div class="sub">Five districts, five crews. Take corners with <b>Enforcers</b> (hire in Crew) — held turf pays street cash every dawn, but rivals will try to take it back and every corner adds a little heat. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div></div>`;
+  for(const dd of DISTRICTS){
+    const own=S.turf[dd.id];
+    const cost=dd.str*1000;
+    const odds=Math.round(Math.min(0.9, 0.5+0.15*(enf-dd.str))*100);
+    h+=`<div class="card" style="border-left:3px solid ${own?'var(--green)':'#7a3a38'}">
+      <div class="rowline"><h3>${own?'🟢':'🔴'} ${dd.name}</h3><span class="spacer"></span>
+      <span class="pill">💷 ${fmt(dd.income)}/day</span><span class="pill">💪 strength ${dd.str}</span></div>
+      <div class="sub">${dd.blurb}<br>${own
+        ? `<b class="money">Yours.</b> ${dd.crew} want it back — keep ${dd.str}+ enforcers on the books.`
+        : `Run by <b>${dd.crew}</b>. A move needs <b>${dd.str} enforcer${dd.str>1?'s':''}</b> + <b class="dirty">${fmt(cost)}</b> cash.`}</div>
+      ${own?'':`<div class="offbtns"><button class="gold" onclick="A.takeover('${dd.id}')" ${enf<dd.str||S.cash<cost?'disabled':''}>Move on it${enf>=dd.str?` · ${odds}% odds`:''}</button></div>`}
+    </div>`;
+  }
   v.innerHTML=h;
 }
 
@@ -1338,10 +1554,22 @@ function rBiz(v){
         :`<button class="gold" onclick="A.buyFront('${f.id}')" ${S.cash<f.cost?'disabled':''}>Buy ${fmt(f.cost)}</button>`}</div>
       <div class="sub">${f.blurb}${owned?'':` · launders ${fmt(f.launder)}/day`}</div></div>`;
   }
+  h+=`<div class="card"><div class="rowline"><h3>🏦 Private Bank</h3><span class="spacer"></span>
+    <button class="gold" onclick="A.withdraw()" ${S.bank<=0?'disabled':''}>Withdraw</button></div>
+    <div class="sub">Balance <b class="money">${fmt(S.bank)}</b>. Pull clean money back out as spendable street cash whenever you like — free of charge.</div></div>`;
   const bribeCost=Math.round(300+S.heat*25);
   h+=`<div class="card"><div class="rowline"><h3>🤫 Grease Palms</h3><span class="spacer"></span>
     <button onclick="A.bribe()" ${S.cash<bribeCost||S.heat<5?'disabled':''}>Bribe ${fmt(bribeCost)}</button></div>
     <div class="sub">-20 heat, price scales with how hot you are. Heat above 70 risks dawn raids; 100 triggers a crackdown.</div></div>`;
+  h+='<div class="card"><h3>💎 The Lifestyle</h3><div class="sub">Every kingpin needs the look. Each piece grants reputation on purchase plus a permanent perk.</div></div>';
+  for(const l of LUXURY){
+    const owned=lux(l.id);
+    const funds=l.cur==='bank'?S.bank:S.cash;
+    h+=`<div class="card"><div class="rowline"><h3>${l.em} ${l.name}</h3><span class="spacer"></span>
+      ${owned?'<span class="pill">✅ Owned</span>'
+        :`<button class="gold" onclick="A.buyLux('${l.id}')" ${funds<l.cost?'disabled':''}>Buy ${fmt(l.cost)} <span style="font-size:10px">(${l.cur})</span></button>`}</div>
+      <div class="sub">+${l.rep} rep · ${l.perk}</div></div>`;
+  }
   h+='<div class="card"><h3>⚙️ Upgrades</h3></div>';
   for(const u of UPGRADES){
     const owned=up(u.id);
@@ -1352,8 +1580,8 @@ function rBiz(v){
   }
   h+=`<div class="card" style="border-color:var(--gold-dim)"><div class="rowline">
     <h3>🏝️ The Gentleman's Exit</h3><span class="spacer"></span>
-    <button class="gold" onclick="A.buyExit()" ${S.bank<EXIT_COST?'disabled':''}>Retire ${fmt(EXIT_COST)}</button></div>
-    <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(EXIT_COST)}</b> in clean money. This wins the game — and how cleanly you lived decides which ending you get.</div></div>`;
+    <button class="gold" onclick="A.buyExit()" ${S.bank<exitCost()?'disabled':''}>Retire ${fmt(exitCost())}</button></div>
+    <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(exitCost())}</b> in clean money${lux('art')?' <span class="pill">🖼️ art discount applied</span>':''}. This wins the game — and how cleanly you lived decides which ending you get.</div></div>`;
   v.innerHTML=h;
 }
 
@@ -1366,6 +1594,8 @@ function rLedger(v){
     <div class="card"><div class="big">${st.harvests}</div><div class="sub">Harvests</div></div>
     <div class="card"><div class="big">${st.contracts}</div><div class="sub">Contracts done</div></div>
     <div class="card"><div class="big">${st.raids}</div><div class="sub">Raids survived</div></div>
+    <div class="card"><div class="big">${st.turf||0}</div><div class="sub">Corners taken</div></div>
+    <div class="card"><div class="big">${ownedTurf().length}/${DISTRICTS.length}</div><div class="sub">Districts held</div></div>
   </div>`;
   const got=Object.keys(S.ach).length;
   h+=`<div class="card"><h3>🏆 Achievements <span class="pill">${got}/${ACH.length}</span></h3>
@@ -1389,9 +1619,10 @@ function intro(){
     <p>You've inherited two things: a leaky allotment shed and an idea. Grow product, sell it on the street, launder the takings, and lease the cellars of England's most desperate lords — until you're rich enough to walk away spotless.</p>
     <p class="muted">🌱 <b>Grow</b>: plant, water, harvest.<br>
     🤝 <b>Street</b>: sell to buyers, haggle hard, fulfil contracts.<br>
-    🎩 <b>Crew</b>: gardeners, runners, fixers, gamekeepers.<br>
-    🏛️ <b>Business</b>: launder cash → bank, keep the heat down.<br>
-    🏆 12 achievements to earn. Market prices shift daily.<br>
+    🗺️ <b>Turf</b>: hire enforcers, take corners from rival crews.<br>
+    🎩 <b>Crew</b>: gardeners, runners, enforcers, fixers, gamekeepers.<br>
+    🏛️ <b>Business</b>: launder cash → bank, withdraw when needed, buy the lifestyle.<br>
+    🏆 ${ACH.length} achievements. Market prices shift daily.<br>
     🏝️ Bank ${fmt(EXIT_COST)} clean to win — your style decides the ending.</p>
     <div class="choices"><button class="gold" onclick="A.close()">Begin</button></div>`);
 }
@@ -1426,16 +1657,19 @@ function load(){
     const raw=localStorage.getItem(SAVE_KEY);
     if(!raw) return null;
     const s=JSON.parse(raw);
-    if(!s || (s.v!==1 && s.v!==2)) return null;
-    // migrate v1 → v2
+    if(!s || s.v<1 || s.v>3) return null;
+    // migrate older saves forward
     if(s.absMin===undefined) s.absMin=(s.day-1)*1440+s.min;
     if(!s.contracts) s.contracts=[];
     if(!s.nextContractId) s.nextContractId=1;
     if(!s.ach) s.ach={};
     if(!s.market) s.market={};
     if(!s.seeds) s.seeds={};
+    if(!s.turf) s.turf={};
+    if(!s.luxury) s.luxury={};
     if(s.stats && s.stats.contracts===undefined) s.stats.contracts=0;
-    s.v=2;
+    if(s.stats && s.stats.turf===undefined) s.stats.turf=0;
+    s.v=3;
     return s;
   }catch(e){}
   return null;
