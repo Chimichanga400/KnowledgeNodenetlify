@@ -1781,20 +1781,33 @@ function renderHUD(){
   updateScene();
 }
 
-let lastTab=null;
+let lastTab=null, lastHTML='', animT=null;
 function render(){
   renderHUD();
   if(modalOpen) return;
   const v=$('view');
-  ({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, life:rLife, ledger:rLedger}[S.tab]||rGrow)(v);
-  if(S.tab!==lastTab){ lastTab=S.tab; v.classList.remove('anim'); void v.offsetWidth; v.classList.add('anim'); }
+  const html=({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, life:rLife, ledger:rLedger}[S.tab]||rGrow)();
+  const switched = S.tab!==lastTab;
+  // Only touch the DOM when the markup actually changed — avoids rewriting
+  // identical innerHTML every tick, which restarted CSS animations and flickered.
+  if(html!==lastHTML || switched){
+    lastHTML=html;
+    v.innerHTML=html;
+  }
+  // Card entrance animation plays once per tab switch, then the class is
+  // stripped so per-tick re-renders don't re-trigger it (that was the flashing).
+  if(switched){
+    lastTab=S.tab;
+    v.classList.remove('anim'); void v.offsetWidth; v.classList.add('anim');
+    clearTimeout(animT); animT=setTimeout(()=>v.classList.remove('anim'), 360);
+  }
 }
 
 function estateArtHTML(e, locked){
   return `<div class="estArt${locked?' locked':''}"><svg viewBox="0 0 200 60" preserveAspectRatio="xMidYMax meet"><g class="sil">${e.art}</g></svg></div>`;
 }
 
-function rGrow(v){
+function rGrow(){
   let h='';
   for(const e of ESTATES){
     const owned=S.estates[e.id]?.owned;
@@ -1821,7 +1834,7 @@ function rGrow(v){
         </div></div>`;
     }
   }
-  v.innerHTML=h;
+  return h;
 }
 function plotCell(eid,p,i){
   if(!p.strain) return `<div class="plot" onclick="A.plot('${eid}',${i})"><span class="plus">➕</span><span class="nm">Plant</span></div>`;
@@ -1837,7 +1850,7 @@ function plotCell(eid,p,i){
   </div>`;
 }
 
-function rStreet(v){
+function rStreet(){
   let h='<div class="card"><h3>📦 Inventory & Market</h3><div class="sub">Prices shift every dawn. Sell into a hot market.</div>';
   const keys=Object.keys(S.inv).filter(k=>S.inv[k]>0);
   h+= keys.length ? keys.map(k=>{const st=strain(k); const m=mkt(k);
@@ -1902,10 +1915,10 @@ function rStreet(v){
       </div>`}
     </div>`;
   }
-  v.innerHTML=h;
+  return h;
 }
 
-function rCrew(v){
+function rCrew(){
   let h='<div class="card"><h3>🎩 The Firm</h3><div class="sub">Wages come out of street cash every dawn. Miss payroll and someone walks.</div></div>';
   for(const role in ROLES){
     const r=ROLES[role];
@@ -1924,10 +1937,10 @@ function rCrew(v){
         <button class="danger" onclick="A.fire(${i})">Sack</button></div>`;
     }).join('')+`<div class="sub" style="margin-top:8px">Total wages: ${fmt(S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0))}/day</div></div>`;
   }
-  v.innerHTML=h;
+  return h;
 }
 
-function rBiz(v){
+function rBiz(){
   const cap=FRONTS.reduce((a,f)=>a+(S.fronts[f.id]?f.launder:0),0);
   let h=`<div class="card"><h3>🧺 The Wash</h3>
     <div class="sub">Street <b class="dirty">cash</b> buys seeds, staff and bribes — but lords and lawyers only accept <b class="money">bank</b> money.
@@ -1967,10 +1980,10 @@ function rBiz(v){
     <h3>🏝️ The Gentleman's Exit</h3><span class="spacer"></span>
     <button class="gold" onclick="A.buyExit()" ${S.bank<exitCost()?'disabled':''}>Retire ${fmt(exitCost())}</button></div>
     <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(exitCost())}</b> in clean money${lux('art')?' <span class="pill">🖼️ art discount applied</span>':''}. This wins the game — and how cleanly you lived decides which ending you get.</div></div>`;
-  v.innerHTML=h;
+  return h;
 }
 
-function rLife(v){
+function rLife(){
   let h='';
   // Community trust banner
   h+=`<div class="card"><div class="rowline"><h3>🕊️ Community Trust</h3><span class="spacer"></span><b style="font-size:18px">${Math.round(S.trust)}/100</b></div>
@@ -2018,10 +2031,10 @@ function rLife(v){
       ${owned?`<span class="pill">✅ Running · ${fmt(c.upkeep)}/day`:`<button class="gold" onclick="A.invest('${c.id}')" ${S.cash<c.cost?'disabled':''}>Fund ${fmt(c.cost)}</button>`}</div>
       <div class="sub">${c.blurb} · +${c.trust} trust${owned?'':` · ${fmt(c.upkeep)}/day upkeep`}</div></div>`;
   }
-  v.innerHTML=h;
+  return h;
 }
 
-function rLedger(v){
+function rLedger(){
   const st=S.stats;
   let h=`<div class="statgrid">
     <div class="card"><div class="big">${fmt(st.earned)}</div><div class="sub">Total earned</div></div>
@@ -2046,7 +2059,7 @@ function rLedger(v){
   h+=`<div class="card"><div class="rowline"><h3>💾 Save</h3><span class="spacer"></span>
     <button class="danger" onclick="A.newGame()">New Game</button></div>
     <div class="sub">Progress autosaves to this device every few seconds. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
-  v.innerHTML=h;
+  return h;
 }
 
 /* ── Intro ───────────────────────────────────────────────────────── */
