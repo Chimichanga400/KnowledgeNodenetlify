@@ -217,6 +217,16 @@
   .bar.trust i{background:var(--gold);}
   .lbar{width:100%; height:8px; margin:7px 0 3px;}
   .heart{color:#e26fa0;}
+
+  /* ── Skill minigame ── */
+  .mini-track{position:relative; height:40px; border-radius:12px; overflow:hidden;
+    margin:16px 0 4px; border:1px solid var(--line); background:#0a130d;}
+  .mini-zone{position:absolute; top:0; bottom:0; display:flex; align-items:center; justify-content:center;
+    font-size:10px; font-weight:700; letter-spacing:.5px; text-transform:uppercase; color:#0000;}
+  .mini-marker{position:absolute; top:-4px; bottom:-4px; width:5px; left:0; border-radius:4px;
+    background:#fff; box-shadow:0 0 12px #fff, 0 0 5px #fff; z-index:2;}
+  .mini-tip{font-size:11.5px; color:var(--ink-dim); text-align:center; margin-top:2px;}
+  #mbtn{width:100%; padding:15px; font-size:17px;}
 </style>
 </head>
 <body>
@@ -383,8 +393,8 @@ const ESTATES = [
     art:'<path d="M40 56 Q 60 46 100 48 Q 150 46 160 56 Z" fill="#243a2a"/><rect x="80" y="22" width="40" height="30"/><rect x="74" y="16" width="12" height="36"/><rect x="114" y="16" width="12" height="36"/><rect x="72" y="12" width="4" height="5"/><rect x="80" y="12" width="4" height="5"/><rect x="112" y="12" width="4" height="5"/><rect x="120" y="12" width="4" height="5"/><rect class="ew" x="96" y="30" width="8" height="10"/><path d="M20 58 q 10 -5 20 0 q 10 5 20 0 q 10 -5 20 0 q 10 5 20 0 q 10 -5 20 0 q 10 5 20 0 q 10 -5 20 0 q 10 5 20 0" stroke="#3d6a8a" stroke-width="3" fill="none"/>'},
 ];
 const ROLES = {
-  gardener: {name:'Gardener',  em:'🧑‍🌾', hire:800,  wage:150, max:99, blurb:'Waters and harvests every plot at one estate, day and night.'},
-  dealer:   {name:'Runner',    em:'🕶️', hire:1200, wage:200, max:99, blurb:'Moves product on the street automatically. Adds a little heat.'},
+  gardener: {name:'Gardener',  em:'🧑‍🌾', hire:800,  wage:150, max:99, blurb:'Auto-harvests every plot at one estate — at base yield. Hand-trim yourself for the Perfect Trim bonus.'},
+  dealer:   {name:'Runner',    em:'🕶️', hire:1200, wage:200, max:99, blurb:'Auto-sells at a flat rate. You only get to haggle on deals you work yourself.'},
   enforcer: {name:'Enforcer',  em:'🥊', hire:2000, wage:300, max:99, blurb:'Muscle. Takes corners from rival crews and holds your turf.'},
   fixer:    {name:'Fixer',     em:'🚬', hire:2500, wage:400, max:99, blurb:'Greases palms. Burns 10 heat every dawn.'},
   botanist: {name:'Botanist',  em:'🔬', hire:4000, wage:500, max:2,  blurb:'+15% harvest yield each. (Max 2)'},
@@ -603,6 +613,55 @@ const SFX={
 };
 function sfx(name){ if(S&&S.muted) return; audioInit(); (SFX[name]||SFX.click)(); }
 
+/* ── Skill minigames (a sweeping marker you time) ────────────────── */
+let miniRAF=null, miniPos=0, miniDir=1;
+function stopMini(){ if(miniRAF){ cancelAnimationFrame(miniRAF); miniRAF=null; } }
+// test hook: freeze the marker at a known position (used by the smoke tests)
+window.__mini=(v)=>{ stopMini(); miniPos=v; };
+function runMini(speed){
+  stopMini(); miniPos=Math.random()*0.15; miniDir=1;
+  let last=performance.now();
+  (function frame(now){
+    const dt=Math.min(0.05,(now-last)/1000); last=now;
+    miniPos += miniDir*speed*dt;
+    if(miniPos>=1){ miniPos=1; miniDir=-1; } else if(miniPos<=0){ miniPos=0; miniDir=1; }
+    const m=$('mmark'); if(m) m.style.left=(miniPos*100)+'%';
+    miniRAF=requestAnimationFrame(frame);
+  })(performance.now());
+}
+function harvestMini(eid,i){
+  const p=S.estates[eid]?.plots[i]; if(!p||!p.strain) return;
+  const st=strain(p.strain);
+  showModal(`<h2>✂️ Trimming the ${st.name}</h2>
+    <p class="muted">Tap <b>Trim!</b> as the marker crosses the golden band for a <b>Perfect Trim</b> (+40% yield). The green shoulders still beat a rushed cut. Gardeners only ever manage a base harvest — hand-trimming is where the skill pays.</p>
+    <div class="mini-track">
+      <div class="mini-zone" style="left:0%;width:100%;background:#241a12"></div>
+      <div class="mini-zone" style="left:26%;width:48%;background:#2f5033">+15%</div>
+      <div class="mini-zone" style="left:44%;width:12%;background:linear-gradient(180deg,#f2d489,#a8843a);color:#241a05">+40%</div>
+      <div class="mini-marker" id="mmark"></div>
+    </div>
+    <div class="mini-tip">Hitting outside the green still gives a full base harvest — no risk, just less bonus.</div>
+    <div class="choices"><button class="gold" id="mbtn" onclick="A.trimStop('${eid}',${i})">✂️ Trim!</button></div>`);
+  runMini(1.45);
+}
+function haggleMini(id){
+  const o=S.offers.find(x=>x.id===id); if(!o||o.haggled) return;
+  const st=strain(o.strain);
+  showModal(`<h2>🤝 Haggling for ${st.name}</h2>
+    <p class="muted">Push the price up — but push too far and the buyer walks. Lock it in the <b class="dirty">gold</b> for the best deal; the <b class="bad">red</b> loses the sale.</p>
+    <div class="mini-track">
+      <div class="mini-zone" style="left:0%;width:55%;background:#2f5033">hold firm</div>
+      <div class="mini-zone" style="left:55%;width:30%;background:linear-gradient(180deg,#f2d489,#a8843a);color:#241a05">great deal</div>
+      <div class="mini-zone" style="left:85%;width:15%;background:#4a1f1d;color:#f0b0ae">walks</div>
+      <div class="mini-marker" id="mmark"></div>
+    </div>
+    <div class="mini-tip">Current: ${fmt(o.price)}/ea for ${o.qty}. Nerve is rewarded; greed is punished.</div>
+    <div class="choices">
+      <button class="gold" id="mbtn" onclick="A.haggleStop(${id})">💪 Push!</button>
+      <button class="ghost" onclick="A.close()">Take it as-is</button></div>`);
+  runMini(1.7);
+}
+
 /* ── Achievements ────────────────────────────────────────────────── */
 function award(id){
   if(S.ach[id]) return;
@@ -637,7 +696,7 @@ function chkAch(){
 /* ── Modal ───────────────────────────────────────────────────────── */
 let modalOpen=false, pendingEvent=null;
 function showModal(html){ $('modal').innerHTML=html; $('modalback').classList.remove('hidden'); modalOpen=true; }
-function closeModal(){ $('modalback').classList.add('hidden'); modalOpen=false; pendingEvent=null; render(); }
+function closeModal(){ stopMini(); $('modalback').classList.add('hidden'); modalOpen=false; pendingEvent=null; render(); }
 
 /* ── Plant simulation (per game-minute) ──────────────────────────── */
 function minutePlants(){
@@ -654,12 +713,13 @@ function minutePlants(){
     }
   }
 }
-function harvestPlot(eid,p,auto){
+function harvestPlot(eid,p,auto,mult){
+  mult=mult||1;
   const st=strain(p.strain);
-  const y=calcYield(st,p.dry);
+  const y=Math.max(1, Math.round(calcYield(st,p.dry)*mult));
   S.inv[st.id]=(S.inv[st.id]||0)+y;
   S.stats.harvests++;
-  addRep(1);
+  addRep(mult>=1.4?3:1);
   const est=S.estates[eid];
   const wasDry=p.dry, sid=p.strain;
   p.strain=null; p.grown=0; p.water=0; p.dry=false;
@@ -667,7 +727,11 @@ function harvestPlot(eid,p,auto){
     if(S.seeds[sid]>0){ S.seeds[sid]--; p.strain=sid; p.water=100; }
     else if(S.cash>=st.seed){ S.cash-=st.seed; p.strain=sid; p.water=100; }
   }
-  if(!auto){ toast(`Harvested <b>${y}× ${st.name}</b>${wasDry?' (drought-stunted)':''}`); fxBurst('🍃',7); fxText('+'+y+' '+st.em,'#8fd8a8'); sfx('buy'); }
+  if(!auto){
+    const tag = mult>=1.4?' — ✨ <b>Perfect Trim!</b>' : mult>1?' — good trim' : '';
+    toast(`Harvested <b>${y}× ${st.name}</b>${tag}${wasDry?' (drought-stunted)':''}`);
+    fxBurst(mult>=1.4?'✨':'🍃', mult>=1.4?10:7); fxText('+'+y+' '+st.em,'#8fd8a8');
+  }
   else log(`Gardener harvested ${y}× ${st.name} at ${ESTATES.find(e=>e.id===eid).name}.`);
   chkAch();
 }
@@ -1239,8 +1303,20 @@ const A = {
     const p=S.estates[eid].plots[i];
     if(!p.strain){ this.pickStrain(eid,i); return; }
     const st=strain(p.strain);
-    if(p.grown>=st.grow){ harvestPlot(eid,p,false); render(); save(); return; }
+    if(p.grown>=st.grow){ harvestMini(eid,i); return; }
     p.water=100; toast(`💧 Watered the ${st.name}.`); fxBurst('💧',3); render();
+  },
+  trimStop(eid,i){
+    stopMini();
+    const p=S.estates[eid]?.plots[i];
+    if(!p||!p.strain){ closeModal(); return; }
+    const pos=miniPos;
+    let mult=1;
+    if(pos>=0.44&&pos<=0.56){ mult=1.4; sfx('win'); }
+    else if(pos>=0.26&&pos<=0.74){ mult=1.15; sfx('buy'); }
+    else sfx('click');
+    harvestPlot(eid,p,false,mult);
+    closeModal(); save();
   },
   pickStrain(eid,i){
     const rows=STRAINS.map(s=>{
@@ -1522,14 +1598,25 @@ const A = {
   },
 
   accept(id){ const o=S.offers.find(x=>x.id===id); if(o) sellToOffer(o); save(); },
-  haggle(id){
-    const o=S.offers.find(x=>x.id===id); if(!o||o.haggled) return;
+  haggle(id){ haggleMini(id); },
+  haggleStop(id){
+    stopMini();
+    const o=S.offers.find(x=>x.id===id); if(!o){ closeModal(); return; }
     o.haggled=true;
-    const winP=(up('tailor')?0.75:0.55)+(lux('watch')?0.05:0);
-    if(Math.random()<winP){ o.price=Math.round(o.price*1.25); toast(`😏 They blinked. Price now ${fmt(o.price)}/ea.`); }
-    else if(Math.random()<0.4){ S.offers=S.offers.filter(x=>x.id!==id); toast('They walked away.',true); }
-    else toast('They won\'t budge, but they\'ll still buy.');
-    render();
+    const pos=miniPos;
+    // the Savile Row wardrobe / watch nudge the safe boundary higher (more forgiving)
+    const walkAt=0.85+(up('tailor')?0.05:0)+(lux('watch')?0.02:0);
+    if(pos>=walkAt){
+      S.offers=S.offers.filter(x=>x.id!==id);
+      toast('😤 You pushed too hard. They walked away.',true); sfx('bad');
+    } else {
+      const gain=1+Math.min(pos,0.85)/0.85*0.5;   // up to +50% at the top of the safe band
+      o.price=Math.round(o.price*gain);
+      const pct=Math.round((gain-1)*100);
+      toast(pct>=30?`😏 Sharp work. Price now <b>${fmt(o.price)}/ea</b> (+${pct}%).`:`Price nudged to ${fmt(o.price)}/ea (+${pct}%).`);
+      sfx(pct>=30?'cash':'click');
+    }
+    closeModal(); save();
   },
   decline(id){ S.offers=S.offers.filter(x=>x.id!==id); render(); },
   deliver(id){ deliverContract(id); },

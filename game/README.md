@@ -17,8 +17,8 @@ saves automatically to your device.
 
 | Loop | What you do |
 |---|---|
-| 🌱 Grow | Buy seeds (street cash), plant, keep watered, harvest. 8 strains unlock with reputation, across 7 leasable estates. Plants are drawn live and visibly grow, wilt, and ripen. |
-| 🤝 Street | Buyers appear 09:00–02:00 with offers. Sell, **haggle** (once per buyer), or decline. Every deal adds **heat**. Market prices shift every dawn — sell into hot markets. |
+| 🌱 Grow | Buy seeds (street cash), plant, keep watered, harvest. 8 strains unlock with reputation, across 7 leasable estates. Plants are drawn live and visibly grow, wilt, and ripen. **Hand-harvesting** launches a timing "trim" minigame — land the marker in the golden band for a Perfect Trim (+40% yield). Gardeners auto-harvest but only at base yield, so skilled manual play out-earns automation. |
+| 🤝 Street | Buyers appear 09:00–02:00 with offers. Sell, or **haggle** with a push-your-luck timing bar — push the price higher for a bigger cut, but push into the red and the buyer walks. Every deal adds **heat**. Market prices shift every dawn — sell into hot markets. |
 | 📜 Contracts | Timed bulk orders that pay 140–180% of value straight into the **bank**. Miss the deadline and your reputation suffers. |
 | 🗺️ Turf | Five districts run by named rival crews (Penny Boys → Dockside Syndicate). Hire **Enforcers** and take corners by force — held turf pays street cash every dawn, but crews hit back and undefended corners get retaken. |
 | 🎩 Crew | 7 roles: Gardeners automate watering/harvest, Runners auto-sell, Enforcers take and hold turf, Fixers cool heat, Botanists boost yield, Gamekeepers cut raid chance, a Barrister softens raids. Wages due at dawn. |
