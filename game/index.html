@@ -227,6 +227,13 @@
     background:#fff; box-shadow:0 0 12px #fff, 0 0 5px #fff; z-index:2;}
   .mini-tip{font-size:11.5px; color:var(--ink-dim); text-align:center; margin-top:2px;}
   #mbtn{width:100%; padding:15px; font-size:17px;}
+
+  /* ── Empire (isometric town) view ── */
+  #empwrap{margin:10px 0;}
+  #hqCanvas{width:100%; height:auto; display:block; border-radius:var(--radius);
+    border:1px solid var(--line); background:#0c1a12;
+    box-shadow:0 6px 24px rgba(0,0,0,.45), 0 1px 0 #ffffff12 inset; touch-action:manipulation;}
+  #tab-empire .bdg{background:var(--red);}
 </style>
 </head>
 <body>
@@ -334,6 +341,7 @@
     <button id="tab-street" onclick="A.tab('street')"><span class="bdg hidden" id="bdgOffers"></span><span class="ico">🤝</span>Street</button>
     <button id="tab-crew"   onclick="A.tab('crew')"><span class="ico">🎩</span>Crew</button>
     <button id="tab-biz"    onclick="A.tab('biz')"><span class="ico">🏛️</span>Business</button>
+    <button id="tab-empire" onclick="A.tab('empire')"><span class="bdg hidden" id="bdgWar"></span><span class="ico">🏰</span>Empire</button>
     <button id="tab-life"   onclick="A.tab('life')"><span class="bdg hidden" id="bdgLife"></span><span class="ico">❤️</span>Life</button>
     <button id="tab-ledger" onclick="A.tab('ledger')"><span class="ico">📜</span>Ledger</button>
   </nav>
@@ -927,7 +935,7 @@ function settle(){
 function raidSeverity(){ return (countRole('barrister')>0?0.5:1) * (up('vault')?0.5:1) * (partnered('grace')?0.75:1); }
 function raid(){
   S.stats.raids++;
-  shake(); sfx('bad');
+  shake(); sfx('bad'); pushWar('hq');
   const sev=raidSeverity();
   const e=pick(ownedEstates());
   const est=S.estates[e.id];
@@ -950,7 +958,7 @@ function bigRaid(){
   if(S._bigRaidLock) return; S._bigRaidLock=true;
   setTimeout(()=>{ S._bigRaidLock=false; },100);
   S.stats.raids++;
-  shake();
+  shake(); pushWar('hq');
   let seized=0;
   for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.75); S.inv[k]-=take; seized+=take; }
   for(const eid in S.estates){ for(const p of S.estates[eid].plots){ p.strain=null;p.grown=0;p.water=0;p.dry=false; } }
@@ -1444,7 +1452,7 @@ const A = {
     if(Math.random()<p){
       S.turf[id]=true; addHeat(10); addRep(10*d.str); S.stats.turf++;
       log(`Took ${d.name} from ${d.crew}. (+${10*d.str} rep, +10 heat)`);
-      fxBurst('⚔️',6); shake(); sfx('win');
+      fxBurst('⚔️',6); shake(); sfx('win'); pushWar('turf');
       showModal(`<h2>⚔️ ${d.name} Is Yours</h2>
         <p>Your enforcers moved at closing time. By sunrise, ${d.crew} were nursing bruises and the corner was yours.</p>
         <p class="muted">+${fmt(d.income)}/day street cash at dawn · +${10*d.str} rep · +10 heat. They will want it back — keep ${d.str}+ enforcers on the books.</p>
@@ -1459,7 +1467,7 @@ const A = {
         log(`Move on ${d.name} failed. (+8 heat)`,true);
         toast('The move failed.',true);
       }
-      shake();
+      shake(); pushWar('turf');
     }
     chkAch(); render(); save();
   },
@@ -1552,7 +1560,7 @@ const A = {
     addHeat(d.str*4);
     addTrust(-15);
     S.stats.hits++;
-    shake(); sfx('bad');
+    shake(); sfx('bad'); pushWar('turf');
     // civilian partner recoils
     let partnerNote='';
     const pr=S.married && person(S.married);
@@ -1757,6 +1765,283 @@ function plantSVG(pct,dry,ready){
   return s;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ISOMETRIC BASE VIEW — a little Townsmen/Diablo-angle town on canvas.
+   Procedural, no assets. Reflects live game state; shows gang wars.
+   ═══════════════════════════════════════════════════════════════════ */
+const EMP_W=720, EMP_H=430;
+const TW=30, TH=15;                 // iso tile half-width / half-height
+const ORIGIN_X=EMP_W/2, ORIGIN_Y=96; // where grid (0,0) lands
+let empRAF=null, peds=[], warFx=[], warUnseen=false, empRoadPts=null;
+function isoPt(gx,gy){ return [ORIGIN_X+(gx-gy)*TW, ORIGIN_Y+(gx+gy)*TH]; }
+function poly(ctx,pts,fill,stroke){
+  ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
+  for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0],pts[i][1]);
+  ctx.closePath();
+  if(fill){ ctx.fillStyle=fill; ctx.fill(); }
+  if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=1; ctx.stroke(); }
+}
+// draw an iso cuboid whose ground footprint is (gx,gy)..(gx+gw,gy+gd), height h px
+function isoBox(ctx,gx,gy,gw,gd,h,top,lft,rgt){
+  const b=isoPt(gx+gw,gy), c=isoPt(gx+gw,gy+gd), d=isoPt(gx,gy+gd), a=isoPt(gx,gy);
+  const A=[a[0],a[1]-h],B=[b[0],b[1]-h],C=[c[0],c[1]-h],D=[d[0],d[1]-h];
+  poly(ctx,[d,c,C,D],lft);      // front-left face
+  poly(ctx,[b,c,C,B],rgt);      // front-right face
+  poly(ctx,[A,B,C,D],top);      // roof/top
+  return {A,B,C,D,b,c,d};
+}
+function litWin(ctx,x,y,w,h,night){ ctx.fillStyle=night>0.4?'#ffd75e':'#1a2c20'; ctx.fillRect(x,y,w,h); }
+
+// Which estate is the "hero" HQ building (grandest owned)
+function heroEstateIdx(){
+  let idx=0; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) idx=i; }); return idx;
+}
+function drawHQ(ctx,night){
+  const tier=heroEstateIdx();               // 0 shed .. 6 island
+  const gx=2.6, gy=1.2;
+  const wallL='#16261b', wallR='#0f1c14', roof='#3a2a1a', roofT='#4a3826';
+  const stoneL='#3a4048', stoneR='#2b3038', stoneT='#464d56';
+  const cx=isoPt(gx,gy)[0];
+  if(tier<=0){ // allotment shed
+    isoBox(ctx,gx+0.4,gy+0.4,1.4,1.2,26,'#5a3f28','#3a2a1a','#2e2114');
+    const f=isoPt(gx+0.4,gy+1.6); litWin(ctx,f[0]+14,f[1]-18,6,7,night);
+    return;
+  }
+  if(tier<=1){ // manor
+    isoBox(ctx,gx,gy,2.4,1.8,40,wallL,wallL,wallR);
+    // pitched roof
+    const t=isoBox(ctx,gx,gy,2.4,1.8,40,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)');
+    roofPitch(ctx,t,18,roofT,roof);
+    frontWindows(ctx,gx,gy+1.8,2.4,3,night);
+  } else if(tier<=2){ // hall (wider, two wings)
+    isoBox(ctx,gx-0.3,gy,3.2,1.8,42,wallL,wallL,wallR);
+    const t=isoBox(ctx,gx-0.3,gy,3.2,1.8,42,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,20,roofT,roof);
+    frontWindows(ctx,gx-0.3,gy+1.8,3.2,4,night);
+  } else if(tier<=3){ // manor + tower
+    isoBox(ctx,gx,gy,2.6,1.8,42,wallL,wallL,wallR);
+    const t=isoBox(ctx,gx,gy,2.6,1.8,42,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,18,roofT,roof);
+    isoBox(ctx,gx+2.1,gy,0.9,0.9,72,stoneL,stoneL,stoneR);
+    frontWindows(ctx,gx,gy+1.8,2.6,4,night);
+  } else if(tier<=4){ // castle
+    isoBox(ctx,gx,gy,3,2,50,stoneL,stoneL,stoneR);
+    isoBox(ctx,gx-0.2,gy-0.2,0.9,0.9,78,stoneL,stoneL,stoneR);
+    isoBox(ctx,gx+2.3,gy-0.2,0.9,0.9,78,stoneL,stoneL,stoneR);
+    battlements(ctx,gx,gy,3,2,50,stoneT);
+    frontWindows(ctx,gx,gy+2,3,4,night);
+  } else if(tier<=5){ // priory with spire
+    isoBox(ctx,gx,gy,2.8,1.8,44,stoneL,stoneL,stoneR);
+    const t=isoBox(ctx,gx,gy,2.8,1.8,44,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,22,'#2b2230','#1d1826');
+    // spire
+    const sp=isoPt(gx+1.4,gy+0.9); ctx.fillStyle=stoneL;
+    poly(ctx,[[sp[0]-10,sp[1]-52],[sp[0]+10,sp[1]-52],[sp[0]+10,sp[1]-96],[sp[0]-10,sp[1]-96]],stoneL);
+    poly(ctx,[[sp[0]-11,sp[1]-96],[sp[0]+11,sp[1]-96],[sp[0],sp[1]-124]],'#2b2230');
+    frontWindows(ctx,gx,gy+1.8,2.8,4,night);
+  } else { // island fortress
+    // rock base
+    poly(ctx,[isoPt(gx-0.6,gy-0.4),isoPt(gx+3.4,gy-0.4),isoPt(gx+3.4,gy+2.6),isoPt(gx-0.6,gy+2.6)],'#243a2a');
+    isoBox(ctx,gx,gy,3,2,54,stoneL,stoneL,stoneR);
+    isoBox(ctx,gx-0.3,gy-0.3,1,1,84,stoneL,stoneL,stoneR);
+    isoBox(ctx,gx+2.3,gy-0.3,1,1,84,stoneL,stoneL,stoneR);
+    battlements(ctx,gx,gy,3,2,54,stoneT);
+    frontWindows(ctx,gx,gy+2,3,4,night);
+  }
+  // a little flag on top for flavour
+  const fp=isoPt(gx+0.2,gy+0.2);
+  ctx.strokeStyle='#8a7a55'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-46); ctx.lineTo(fp[0],fp[1]-70); ctx.stroke();
+  ctx.fillStyle=ownedTurf().length? '#5fbf7f':'#d9b45b';
+  ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-70); ctx.lineTo(fp[0]+14,fp[1]-66); ctx.lineTo(fp[0],fp[1]-61); ctx.fill();
+}
+function roofPitch(ctx,box,rise,c1,c2){
+  const {A,B,C,D}=box;
+  const midF=[(D[0]+C[0])/2,(D[1]+C[1])/2 - rise];
+  const midB=[(A[0]+B[0])/2,(A[1]+B[1])/2 - rise];
+  poly(ctx,[D,C,midF],c1); poly(ctx,[A,B,midB],c2);
+  poly(ctx,[D,midF,midB,A],c2); poly(ctx,[C,B,midB,midF],c1);
+}
+function battlements(ctx,gx,gy,gw,gd,h,col){
+  for(let i=0;i<gw*2;i++){ const p=isoPt(gx+i*0.5,gy); ctx.fillStyle=col; ctx.fillRect(p[0]-2,p[1]-h-6,5,6); }
+}
+function frontWindows(ctx,gx,gyFront,gw,n,night){
+  for(let i=0;i<n;i++){ const p=isoPt(gx+0.3+i*(gw-0.6)/n, gyFront); litWin(ctx,p[0]-3,p[1]-22,6,8,night); }
+}
+
+// Front-business shops line the near street
+function drawShops(ctx,night){
+  const owned=FRONTS.filter(f=>S.fronts[f.id]);
+  const slots=[[0.2,6.4],[1.6,6.4],[3.0,6.4],[4.4,6.4],[5.8,6.4],[7.2,6.4]];
+  owned.forEach((f,i)=>{ if(i>=slots.length)return; const [gx,gy]=slots[i];
+    const hue=['#3a2f22','#22333a','#3a2233','#2c3a22','#38251c','#2a2238'][i%6];
+    isoBox(ctx,gx,gy,1,0.9,20,'#151f18',hue,shade(hue,-14));
+    const p=isoPt(gx+0.5,gy+0.9); litWin(ctx,p[0]-8,p[1]-15,5,6,night); litWin(ctx,p[0]+3,p[1]-15,5,6,night);
+    // awning + emoji sign
+    ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText(f.em, p[0], p[1]-20);
+  });
+  ctx.textAlign='left';
+}
+function shade(hex,d){ const n=parseInt(hex.slice(1),16); const r=Math.max(0,Math.min(255,(n>>16)+d)),g=Math.max(0,Math.min(255,((n>>8)&255)+d)),b=Math.max(0,Math.min(255,(n&255)+d)); return '#'+((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1); }
+
+function drawProps(ctx,night){
+  // trees
+  [[8.6,1.4],[8.9,3.2],[-0.2,4.6],[0.2,2.0]].forEach(([gx,gy])=>{ const p=isoPt(gx,gy);
+    ctx.fillStyle='#0c2416'; ctx.beginPath(); ctx.arc(p[0],p[1]-14,10,0,7); ctx.fill();
+    ctx.fillStyle='#153a24'; ctx.beginPath(); ctx.arc(p[0]-3,p[1]-17,7,0,7); ctx.fill();
+    ctx.fillStyle='#3a2a1a'; ctx.fillRect(p[0]-1,p[1]-6,3,7); });
+  // Jaguar in the drive
+  if(lux('motor')){ const p=isoPt(1.4,3.2); ctx.fillStyle='#5a1512';
+    roundRect(ctx,p[0]-13,p[1]-8,26,10,3); ctx.fillStyle='#7a2320'; roundRect(ctx,p[0]-8,p[1]-13,16,6,2);
+    ctx.fillStyle='#0a0d11'; ctx.beginPath(); ctx.arc(p[0]-8,p[1]+2,3,0,7); ctx.arc(p[0]+8,p[1]+2,3,0,7); ctx.fill(); }
+  // Speedboat (island/near water edge)
+  if(lux('boat')){ const p=isoPt(9.4,5.4); ctx.fillStyle='#2a3a48';
+    ctx.beginPath(); ctx.moveTo(p[0]-16,p[1]); ctx.lineTo(p[0]+16,p[1]); ctx.lineTo(p[0]+10,p[1]+7); ctx.lineTo(p[0]-10,p[1]+7); ctx.fill();
+    ctx.fillStyle='#cfd8dd'; roundRect(ctx,p[0]-4,p[1]-8,10,8,2); }
+  // streetlamps
+  [[2.0,5.0],[5.0,5.0],[7.5,5.0]].forEach(([gx,gy])=>{ const p=isoPt(gx,gy);
+    ctx.strokeStyle='#26302a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-26); ctx.stroke();
+    if(night>0.4){ const g=ctx.createRadialGradient(p[0],p[1]-27,1,p[0],p[1]-27,16); g.addColorStop(0,'rgba(255,220,120,.6)'); g.addColorStop(1,'rgba(255,220,120,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p[0],p[1]-27,16,0,7); ctx.fill(); }
+    ctx.fillStyle=night>0.4?'#ffd75e':'#3a3a2a'; ctx.beginPath(); ctx.arc(p[0],p[1]-27,3,0,7); ctx.fill(); });
+}
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); ctx.fill(); }
+
+/* ── Pedestrians ─────────────────────────────────────────────────── */
+const PED_COL={
+  civ:['#8a94a0','#a0897a','#7a8a6a','#9a7a8a'], runner:['#20242c'], enforcer:['#2a2018'],
+  police:['#1a2a4a'], gardener:['#2f5033']
+};
+function mkPed(type){ return { type, t:Math.random(), dir:Math.random()<0.5?1:-1,
+  lane:Math.random()<0.5?-0.28:0.28, spd:0.02+Math.random()*0.03, ph:Math.random()*6.28,
+  col:pick(PED_COL[type]||PED_COL.civ) }; }
+function empBuildPeds(){
+  peds=[];
+  const civ = 4 + Math.min(10, Math.floor(S.rep/120) + ownedTurf().reduce((a,d)=>a+d.str,0));
+  for(let i=0;i<civ;i++) peds.push(mkPed('civ'));
+  for(let i=0;i<Math.min(6,countRole('dealer'));i++) peds.push(mkPed('runner'));
+  for(let i=0;i<Math.min(6,countRole('enforcer'));i++) peds.push(mkPed('enforcer'));
+  for(let i=0;i<Math.min(3,countRole('gardener'));i++) peds.push(mkPed('gardener'));
+  if(S.heat>=45){ const n=1+Math.floor((S.heat-45)/22); for(let i=0;i<n;i++) peds.push(mkPed('police')); }
+}
+// street runs along the grid line gy≈5 (gx from 0..8)
+function pedPos(p){ const gx=0.2+p.t*7.6, gy=5+p.lane; return isoPt(gx,gy); }
+function updatePeds(dt){
+  for(const p of peds){ p.t+=p.dir*p.spd*dt; if(p.t>1){ p.t=1; p.dir=-1; } else if(p.t<0){ p.t=0; p.dir=1; } }
+}
+function drawPed(ctx,p,now){
+  const [x,y]=pedPos(p);
+  const sc=0.85+0.3*(p.t);                       // nearer street = slightly bigger
+  const swing=Math.sin(now*7+p.ph)*2.2;
+  const bob=Math.abs(Math.sin(now*7+p.ph))*1.2;
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(x,y+1,6*sc,2.4*sc,0,0,7); ctx.fill();
+  const top=y-16*sc-bob;
+  // legs
+  ctx.strokeStyle='#14181c'; ctx.lineWidth=2*sc; ctx.beginPath();
+  ctx.moveTo(x,top+9*sc); ctx.lineTo(x-swing*0.5,y); ctx.moveTo(x,top+9*sc); ctx.lineTo(x+swing*0.5,y); ctx.stroke();
+  // body
+  ctx.fillStyle=p.col; roundRect(ctx,x-3.2*sc,top,6.4*sc,10*sc,2*sc);
+  // head
+  ctx.fillStyle='#d9b38a'; ctx.beginPath(); ctx.arc(x,top-2*sc,2.8*sc,0,7); ctx.fill();
+  // type markers
+  if(p.type==='police'){ ctx.fillStyle='#4a6ab0'; ctx.fillRect(x-3.4*sc,top-4.6*sc,6.8*sc,2.2*sc); }
+  if(p.type==='runner'){ ctx.fillStyle='#0c0f13'; ctx.beginPath(); ctx.arc(x,top-2*sc,3.1*sc,3.6,6.6); ctx.fill(); } // hood
+  if(p.type==='enforcer'){ ctx.fillStyle=p.col; roundRect(ctx,x-4.2*sc,top,8.4*sc,10*sc,2*sc); } // broad
+}
+
+/* ── Gang-war effects ────────────────────────────────────────────── */
+function pushWar(where){
+  // where: 'hq' | 'street' | 'turf'
+  let gx=4, gy=5;
+  if(where==='hq'){ gx=3.5; gy=2; } else if(where==='turf'){ gx=6.5; gy=5; } else { gx=1.5+Math.random()*5; gy=5; }
+  const [x,y]=isoPt(gx,gy);
+  warFx.push({x,y,life:0,max:2.6, fighters:[]});
+  warUnseen=true;
+  renderHUD();
+}
+function drawWar(ctx,fx,dt,now){
+  fx.life+=dt; const k=fx.life/fx.max; if(k>=1) return false;
+  const {x,y}=fx;
+  // ground scorch / dust
+  ctx.fillStyle=`rgba(30,20,14,${0.3*(1-k)})`; ctx.beginPath(); ctx.ellipse(x,y,26,11,0,0,7); ctx.fill();
+  // clashing figures
+  for(let i=0;i<4;i++){ const a=i/4*6.28+now*2; const r=10+Math.sin(now*9+i)*4;
+    const fx2=x+Math.cos(a)*r, fy2=y-6+Math.sin(a)*r*0.5;
+    ctx.fillStyle=i%2?'#2a2018':'#3a1512'; roundRect(ctx,fx2-3,fy2-9,6,10,2);
+    ctx.fillStyle='#d9b38a'; ctx.beginPath(); ctx.arc(fx2,fy2-11,2.4,0,7); ctx.fill(); }
+  // muzzle flashes
+  if(Math.random()<0.5){ const fxx=x+rnd(-18,18), fyy=y-rnd(4,16);
+    const g=ctx.createRadialGradient(fxx,fyy,0,fxx,fyy,10); g.addColorStop(0,'rgba(255,230,140,.95)'); g.addColorStop(1,'rgba(255,120,40,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(fxx,fyy,10,0,7); ctx.fill(); }
+  // smoke rising
+  for(let i=0;i<3;i++){ const sy=y-fx.life*22-i*10; const a=0.25*(1-k);
+    ctx.fillStyle=`rgba(120,120,120,${a})`; ctx.beginPath(); ctx.arc(x+Math.sin(now+i)*6,sy,5+i*2,0,7); ctx.fill(); }
+  // expanding ring on impact start
+  if(k<0.3){ ctx.strokeStyle=`rgba(226,99,95,${1-k/0.3})`; ctx.lineWidth=2; ctx.beginPath(); ctx.ellipse(x,y,30*(k/0.3),13*(k/0.3),0,0,7); ctx.stroke(); }
+  return true;
+}
+
+/* ── Scene assembly ──────────────────────────────────────────────── */
+function empDraw(ctx,now){
+  const night=nightFactor(S.min/60);
+  // sky/background
+  const sky=ctx.createLinearGradient(0,0,0,EMP_H);
+  sky.addColorStop(0, mixNight('#3f6ea5','#0a1226',night));
+  sky.addColorStop(0.5, mixNight('#7fa8cf','#101a30',night));
+  sky.addColorStop(1, mixNight('#2c3a2a','#0a130d',night));
+  ctx.fillStyle=sky; ctx.fillRect(0,0,EMP_W,EMP_H);
+  // stars at night
+  if(night>0.4){ ctx.fillStyle=`rgba(240,236,214,${(night-0.4)*1.2})`;
+    for(let i=0;i<26;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%110; ctx.fillRect(sx,sy,1.5,1.5); } }
+  // ground platform (grass)
+  const g0=isoPt(-1,-1), g1=isoPt(9,-1), g2=isoPt(9,7), g3=isoPt(-1,7);
+  poly(ctx,[g0,g1,g2,g3], mixNight('#1c3a24','#0d1c13',night));
+  // subtle tile grid
+  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
+  for(let i=-1;i<=9;i++){ const a=isoPt(i,-1),b=isoPt(i,7); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+  for(let j=-1;j<=7;j++){ const a=isoPt(-1,j),b=isoPt(9,j); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
+  // road along gy 4.6..5.4
+  const r0=isoPt(-1,4.6), r1=isoPt(9,4.6), r2=isoPt(9,5.4), r3=isoPt(-1,5.4);
+  poly(ctx,[r0,r1,r2,r3], mixNight('#2a2b2e','#14161a',night));
+  // road dashes
+  ctx.strokeStyle=`rgba(217,180,91,${night>0.4?0.5:0.7})`; ctx.lineWidth=1.5; ctx.setLineDash([8,8]);
+  let ca=isoPt(-1,5), cb=isoPt(9,5); ctx.beginPath(); ctx.moveTo(ca[0],ca[1]); ctx.lineTo(cb[0],cb[1]); ctx.stroke(); ctx.setLineDash([]);
+
+  // depth-sorted drawables: HQ, shops, props drawn back-to-front, peds interleaved by baseline
+  drawHQ(ctx,night);
+  drawShops(ctx,night);
+  drawProps(ctx,night);
+  // peds sorted by screen-y so nearer ones overlap
+  const sorted=peds.slice().sort((a,b)=>pedPos(a)[1]-pedPos(b)[1]);
+  for(const p of sorted) drawPed(ctx,p,now);
+  // war effects on top
+  warFx = warFx.filter(fx=>drawWar(ctx,fx,empDT,now));
+
+  // night vignette
+  if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${(night)*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
+  // caption
+  ctx.fillStyle='rgba(240,236,214,.75)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
+  ctx.fillText(`${ESTATES[heroEstateIdx()].name} · ${phaseStr()}`, 12, EMP_H-12);
+  ctx.textAlign='right'; ctx.fillText(`${ownedTurf().length}/${DISTRICTS.length} districts · ${peds.length} on the streets`, EMP_W-12, EMP_H-12);
+  ctx.textAlign='left';
+}
+function mixNight(day, night,f){ return hexLerp(day,night,f); }
+
+let empDT=0.016;
+function empireStart(){
+  const cv=$('hqCanvas'); if(!cv) return;
+  const ctx=cv.getContext('2d');
+  const hadWar=warUnseen;
+  empBuildPeds(); warUnseen=false; renderHUD();
+  // if a war broke out while you weren't looking, replay a clash as you arrive
+  if(hadWar){ const [x,y]=isoPt(6.5,5); warFx.push({x,y,life:0,max:3.4}); }
+  let last=performance.now();
+  empireStop();
+  (function loop(now){
+    empDT=Math.min(0.05,(now-last)/1000); last=now;
+    updatePeds(empDT);
+    empDraw(ctx, now/1000);
+    empRAF=requestAnimationFrame(loop);
+  })(performance.now());
+}
+function empireStop(){ if(empRAF){ cancelAnimationFrame(empRAF); empRAF=null; } }
+
 /* ── Rendering ───────────────────────────────────────────────────── */
 function renderHUD(){
   $('clock').textContent=clockStr();
@@ -1773,6 +2058,8 @@ function renderHUD(){
   const bl=$('bdgLife');
   const datable=PEOPLE.some(p=>aff(p.id)>0 && aff(p.id)<100) && S.dateDoneDay!==S.day;
   if(datable){ bl.textContent='♥'; bl.classList.remove('hidden'); } else bl.classList.add('hidden');
+  const bw=$('bdgWar');
+  if(bw){ if(warUnseen && S.tab!=='empire'){ bw.textContent='!'; bw.classList.remove('hidden'); } else bw.classList.add('hidden'); }
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));
   const tb=$('tab-'+S.tab); if(tb) tb.classList.add('on');
   document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('on'));
@@ -1784,9 +2071,9 @@ function renderHUD(){
 let lastTab=null, lastHTML='', animT=null;
 function render(){
   renderHUD();
-  if(modalOpen) return;
+  if(modalOpen){ empireStop(); return; }
   const v=$('view');
-  const html=({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, life:rLife, ledger:rLedger}[S.tab]||rGrow)();
+  const html=({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, empire:rEmpire, life:rLife, ledger:rLedger}[S.tab]||rGrow)();
   const switched = S.tab!==lastTab;
   // Only touch the DOM when the markup actually changed — avoids rewriting
   // identical innerHTML every tick, which restarted CSS animations and flickered.
@@ -1801,6 +2088,9 @@ function render(){
     v.classList.remove('anim'); void v.offsetWidth; v.classList.add('anim');
     clearTimeout(animT); animT=setTimeout(()=>v.classList.remove('anim'), 360);
   }
+  // Drive the isometric canvas loop only while its tab is showing.
+  if(S.tab==='empire'){ if(!empRAF) empireStart(); }
+  else if(empRAF){ empireStop(); }
 }
 
 function estateArtHTML(e, locked){
@@ -2034,6 +2324,19 @@ function rLife(){
   return h;
 }
 
+function rEmpire(){
+  // Constant markup — the live scene is drawn on the canvas, so this never
+  // needs re-rendering (which would destroy and recreate the canvas).
+  return `<div id="empwrap">
+    <canvas id="hqCanvas" width="720" height="430" aria-label="Your base of operations"></canvas>
+  </div>
+  <div class="card"><h3>🏰 Base of Operations</h3>
+    <div class="sub">A bird's-eye view of your manor and the streets around it. It grows as your empire does —
+    your HQ upgrades with your grandest estate, front businesses become shops, luxuries appear in the grounds,
+    and your crew and the public walk the streets. When a war kicks off — a takeover, a raid, or a hit —
+    you'll see it happen here.</div></div>`;
+}
+
 function rLedger(){
   const st=S.stats;
   let h=`<div class="statgrid">
@@ -2143,7 +2446,10 @@ if($('muteBtn')) $('muteBtn').textContent=S.muted?'🔇':'🔊';
 render();  // render behind the title so it's ready
 setInterval(tick, 250);
 setInterval(save, 15000);
-window.addEventListener('visibilitychange', ()=>{ if(document.hidden) save(); });
+window.addEventListener('visibilitychange', ()=>{
+  if(document.hidden){ save(); empireStop(); }
+  else if(S && S.tab==='empire' && $('title').style.display==='none' && !modalOpen){ empireStart(); }
+});
 // first user gesture unlocks audio on mobile
 document.addEventListener('pointerdown', audioInit, {once:true});
 if('serviceWorker' in navigator){
