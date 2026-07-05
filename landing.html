@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="theme-color" content="#f0a500"/>
+<title>KnowledgeNode — Your AI study tutor for less than one hour of tutoring</title>
+<meta name="description" content="Turn your own notes into a personal AI tutor. Spaced repetition, AI study sessions and study plans built for South African students. From R99/month."/>
+<link rel="icon" href="icons/icon.svg"/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#0d0f13; --bg-2:#14171d; --bg-3:#1b1f27;
+    --gold:#f0a500; --gold-soft:rgba(240,165,0,.12);
+    --text:#eef0f4; --muted:#9aa3b2; --border:rgba(255,255,255,.08);
+    --radius:14px; --max:1080px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6}
+  a{color:inherit;text-decoration:none}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 20px}
+  section{padding:72px 0}
+
+  /* nav */
+  nav{position:sticky;top:0;z-index:50;background:rgba(13,15,19,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px}
+  .logo-mark{width:32px;height:32px;border-radius:9px;background:var(--gold);color:#14171d;display:flex;align-items:center;justify-content:center;font-weight:800}
+  .nav-links{display:flex;gap:26px;font-size:14px;color:var(--muted)}
+  .nav-links a:hover{color:var(--text)}
+  @media(max-width:700px){.nav-links{display:none}}
+
+  .btn{display:inline-block;padding:13px 26px;border-radius:10px;font-weight:700;font-size:15px;transition:transform .15s,box-shadow .15s;cursor:pointer;border:none}
+  .btn-gold{background:var(--gold);color:#14171d}
+  .btn-gold:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(240,165,0,.35)}
+  .btn-ghost{border:1px solid var(--border);color:var(--text);background:transparent}
+  .btn-ghost:hover{border-color:var(--gold);color:var(--gold)}
+
+  /* hero */
+  .hero{padding:96px 0 72px;text-align:center;background:radial-gradient(ellipse 80% 55% at 50% -5%,rgba(240,165,0,.14),transparent)}
+  .pill{display:inline-block;padding:6px 14px;border-radius:999px;background:var(--gold-soft);color:var(--gold);font-size:13px;font-weight:600;margin-bottom:22px}
+  h1{font-size:clamp(32px,5.5vw,56px);font-weight:800;line-height:1.12;letter-spacing:-.02em;max-width:820px;margin:0 auto 18px}
+  h1 em{color:var(--gold);font-style:normal}
+  .sub{font-size:clamp(16px,2.2vw,19px);color:var(--muted);max-width:640px;margin:0 auto 34px}
+  .hero-ctas{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .hero-note{margin-top:16px;font-size:13px;color:var(--muted)}
+
+  /* compare strip */
+  .strip{background:var(--bg-2);border-block:1px solid var(--border);padding:34px 0}
+  .strip-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;text-align:center}
+  .strip-grid b{display:block;font-size:26px;color:var(--gold);font-weight:800}
+  .strip-grid span{font-size:13.5px;color:var(--muted)}
+  @media(max-width:700px){.strip-grid{grid-template-columns:1fr;gap:22px}}
+
+  h2{font-size:clamp(26px,3.6vw,36px);font-weight:800;letter-spacing:-.01em;text-align:center;margin-bottom:12px}
+  .lead{text-align:center;color:var(--muted);max-width:560px;margin:0 auto 46px}
+
+  /* features */
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:860px){.grid{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:26px}
+  .card .ico{width:42px;height:42px;border-radius:11px;background:var(--gold-soft);color:var(--gold);display:flex;align-items:center;justify-content:center;font-size:20px;margin-bottom:16px}
+  .card h3{font-size:16.5px;margin-bottom:8px}
+  .card p{font-size:14px;color:var(--muted)}
+
+  /* steps */
+  .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;counter-reset:step}
+  @media(max-width:700px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:28px;position:relative}
+  .step::before{counter-increment:step;content:counter(step);position:absolute;top:-16px;left:24px;width:34px;height:34px;border-radius:50%;background:var(--gold);color:#14171d;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:15px}
+  .step h3{margin:8px 0 8px;font-size:16.5px}
+  .step p{font-size:14px;color:var(--muted)}
+
+  /* pricing */
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;align-items:stretch}
+  @media(max-width:860px){.plans{grid-template-columns:1fr;max-width:420px;margin:0 auto}}
+  .plan{background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius);padding:30px;display:flex;flex-direction:column}
+  .plan.featured{border-color:var(--gold);background:linear-gradient(180deg,rgba(240,165,0,.07),var(--bg-2));position:relative}
+  .plan.featured::before{content:"MOST POPULAR";position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--gold);color:#14171d;font-size:11px;font-weight:800;letter-spacing:.06em;padding:4px 12px;border-radius:999px}
+  .plan h3{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .price{font-size:38px;font-weight:800;margin:10px 0 2px}
+  .price small{font-size:14px;font-weight:500;color:var(--muted)}
+  .per{font-size:13px;color:var(--muted);margin-bottom:20px}
+  .plan ul{list-style:none;font-size:14px;color:var(--muted);flex:1;margin-bottom:24px}
+  .plan li{padding:7px 0;border-bottom:1px solid var(--border)}
+  .plan li::before{content:"✓  ";color:var(--gold);font-weight:700}
+  .plan .btn{text-align:center}
+
+  /* faq */
+  .faq{max-width:720px;margin:0 auto}
+  details{background:var(--bg-2);border:1px solid var(--border);border-radius:12px;margin-bottom:12px;overflow:hidden}
+  summary{padding:18px 22px;font-weight:600;font-size:15px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center}
+  summary::after{content:"+";color:var(--gold);font-size:20px;font-weight:400}
+  details[open] summary::after{content:"–"}
+  details p{padding:0 22px 18px;font-size:14px;color:var(--muted)}
+
+  /* waitlist */
+  .waitlist{background:var(--bg-2);border:1px solid var(--border);border-radius:20px;padding:52px 28px;text-align:center}
+  .waitlist form{display:flex;gap:12px;max-width:480px;margin:26px auto 0;flex-wrap:wrap;justify-content:center}
+  .waitlist input[type=email]{flex:1;min-width:240px;padding:13px 16px;border-radius:10px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:15px;font-family:inherit}
+  .waitlist input[type=email]:focus{outline:none;border-color:var(--gold)}
+
+  footer{border-top:1px solid var(--border);padding:36px 0;font-size:13px;color:var(--muted)}
+  .foot{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-inner">
+    <a class="logo" href="#"><span class="logo-mark">K</span>KnowledgeNode</a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+    </div>
+    <a class="btn btn-gold" href="/" style="padding:10px 20px;font-size:14px">Open the app</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="pill">Built for South African students 🇿🇦</span>
+    <h1>A tutor in your pocket, for less than <em>one hour</em> of tutoring</h1>
+    <p class="sub">KnowledgeNode turns your own notes into a personal AI study system —
+      spaced repetition, AI-guided study sessions and exam-ready study plans. From R99/month.
+      Human tutors charge that per hour.</p>
+    <div class="hero-ctas">
+      <a class="btn btn-gold" href="/">Try it free — no card needed</a>
+      <a class="btn btn-ghost" href="#pricing">See pricing</a>
+    </div>
+    <p class="hero-note">Free plan forever · Premium from R99/month · Cancel anytime</p>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="wrap strip-grid">
+    <div><b>R100–R450</b><span>what ONE HOUR of human tutoring costs in SA</span></div>
+    <div><b>R99/month</b><span>unlimited-hours AI tutor that studies YOUR notes</span></div>
+    <div><b>2am</b><span>when it's still awake before your exam</span></div>
+  </div>
+</div>
+
+<section id="features">
+  <div class="wrap">
+    <h2>Everything between your notes and your marks</h2>
+    <p class="lead">Not another flashcard app — a full study system that starts from the notes you already have.</p>
+    <div class="grid">
+      <div class="card"><div class="ico">↑</div><h3>Upload anything</h3><p>Type notes, paste slides, or photograph handwritten pages — built-in OCR reads them and turns them into structured knowledge nodes.</p></div>
+      <div class="card"><div class="ico">🧠</div><h3>AI tutor on your content</h3><p>A Socratic tutor that asks you questions about <i>your</i> syllabus, checks your understanding, and explains what you got wrong.</p></div>
+      <div class="card"><div class="ico">↺</div><h3>Spaced repetition</h3><p>Reviews scheduled exactly when you're about to forget, so cramming becomes remembering.</p></div>
+      <div class="card"><div class="ico">📅</div><h3>Exam study plans</h3><p>Tell it your exam date — it builds the day-by-day plan and adapts when you fall behind (it happens).</p></div>
+      <div class="card"><div class="ico">⬡</div><h3>AI Director</h3><p>Let the AI evaluate your progress and reshape your notes, methods and plan when something isn't working.</p></div>
+      <div class="card"><div class="ico">◉</div><h3>Progress you can see</h3><p>Mastery scores, streaks and due counts — know exactly what's exam-ready and what isn't.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" style="background:var(--bg-2);border-block:1px solid var(--border)">
+  <div class="wrap">
+    <h2>From messy notes to exam-ready in 3 steps</h2>
+    <p class="lead">No setup, no imports from other apps. Start with what's in your bag.</p>
+    <div class="steps" style="margin-top:40px">
+      <div class="step"><h3>Add your notes</h3><p>Photograph, paste or type. KnowledgeNode breaks them into connected knowledge nodes automatically.</p></div>
+      <div class="step"><h3>Study with the AI</h3><p>Guided sessions quiz you, catch weak spots, and explain concepts using your own material — not generic textbook answers.</p></div>
+      <div class="step"><h3>Review on schedule</h3><p>Short daily reviews at the scientifically right moment. Watch your mastery climb before the exam does.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <h2>Pricing that makes sense in rand</h2>
+    <p class="lead">Start free. Upgrade when you want the AI on your side.</p>
+    <div class="plans">
+      <div class="plan">
+        <h3>Free</h3>
+        <div class="price">R0</div>
+        <div class="per">forever</div>
+        <ul>
+          <li>Notes, library &amp; knowledge nodes</li>
+          <li>Spaced-repetition reviews</li>
+          <li>Study plans &amp; streaks</li>
+          <li>Works offline on your device</li>
+        </ul>
+        <a class="btn btn-ghost" href="/">Start free</a>
+      </div>
+      <div class="plan featured">
+        <h3>Premium</h3>
+        <div class="price">R99<small>/month</small></div>
+        <div class="per">or R799/year (save 33%)</div>
+        <ul>
+          <li>Everything in Free</li>
+          <li>AI tutor &amp; guided study sessions</li>
+          <li>OCR — photograph handwritten notes</li>
+          <li>AI Director &amp; understanding checks</li>
+          <li>Generous daily AI allowance</li>
+        </ul>
+        <a class="btn btn-gold" href="#waitlist">Get Premium</a>
+      </div>
+      <div class="plan">
+        <h3>Schools &amp; Tutors</h3>
+        <div class="price">R59<small>/learner/mo</small></div>
+        <div class="per">min 25 learners · free 30-day pilot</div>
+        <ul>
+          <li>Premium for every learner</li>
+          <li>Monthly usage report for your centre</li>
+          <li>Onboarding session included</li>
+          <li>Priority support</li>
+        </ul>
+        <a class="btn btn-ghost" href="#waitlist">Book a pilot</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq" style="background:var(--bg-2);border-block:1px solid var(--border)">
+  <div class="wrap">
+    <h2>Questions students actually ask</h2>
+    <div class="faq" style="margin-top:40px">
+      <details><summary>Is the free plan actually free?</summary><p>Yes — notes, spaced repetition and study plans are free forever, no card required. Premium adds the AI features (tutor, OCR, AI Director).</p></details>
+      <details><summary>Will it work with my subjects?</summary><p>It studies <i>your</i> notes, so it works for any subject and any curriculum — matric NSC/IEB, university modules, professional exams.</p></details>
+      <details><summary>How do I pay?</summary><p>Card or instant EFT via Paystack on the web, or through Google Play in the Android app. Cancel anytime — you keep the free features.</p></details>
+      <details><summary>Does it use a lot of data?</summary><p>Your notes live on your device and reviews work offline. Only AI conversations need a connection, and they're text — a few study sessions use less data than one Instagram reel.</p></details>
+      <details><summary>Is my study data private?</summary><p>Your notes are stored on your own device, not on our servers. AI requests are processed securely and never sold. Full privacy policy available in the app.</p></details>
+      <details><summary>Can the AI guarantee better marks?</summary><p>No app honestly can. What it guarantees is structured, consistent studying — spaced repetition and active recall are the two most evidence-backed study methods known.</p></details>
+    </div>
+  </div>
+</section>
+
+<section id="waitlist">
+  <div class="wrap">
+    <div class="waitlist">
+      <h2>Get Premium early — founding member price</h2>
+      <p class="lead" style="margin-bottom:0">Join the list and get your first month of Premium at <b style="color:var(--gold)">50% off (R49)</b> when we open payments. Schools: mention your centre and we'll set up your free pilot.</p>
+      <form name="waitlist" method="POST" data-netlify="true" netlify-honeypot="bot-field">
+        <input type="hidden" name="form-name" value="waitlist"/>
+        <p style="display:none"><label>Don't fill this: <input name="bot-field"/></label></p>
+        <input type="email" name="email" placeholder="your@email.com" required/>
+        <button class="btn btn-gold" type="submit">Join the waitlist</button>
+      </form>
+      <p class="hero-note">No spam — one email when your discount is ready.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <span>© 2026 KnowledgeNode · Made in South Africa</span>
+    <span><a href="/" style="color:var(--gold)">Open the app</a> · <a href="#pricing">Pricing</a> · <a href="#faq">FAQ</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
