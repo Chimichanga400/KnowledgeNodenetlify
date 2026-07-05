@@ -24,12 +24,16 @@ saves automatically to your device.
 | 🎩 Crew | 7 roles: Gardeners automate watering/harvest, Runners auto-sell, Enforcers take and hold turf, Fixers cool heat, Botanists boost yield, Gamekeepers cut raid chance, a Barrister softens raids. Wages due at dawn. |
 | 🏛️ Business | 6 front businesses launder dirty **cash** into clean **bank** money (10% fee, settles at dawn). A **Private Bank** lets you withdraw clean money back into street cash any time, free. 9 upgrades. Lords and estates only accept bank money. |
 | 💎 Lifestyle | 6 luxury assets — watch, vintage Jaguar, speedboat, racehorse, penthouse, art collection — each grants reputation plus a permanent perk (better haggling, more buyers, longer contract deadlines, prize money, faster heat decay, a cheaper exit). |
+| ❤️ Life | Build relationships with four distinct characters — a civilian florist, a rival crew lieutenant, a defence solicitor, a grime artist — each with their own tastes. Spend evenings together to raise affection, then commit, **marry**, and start a **family**. Each committed partner grants a lasting perk, and your family changes your ending. |
+| 🏘️ Community | Fund five community projects (youth club, food pantry, boxing programme, scholarship, people's centre) to build a **Community Trust** meter that cools heat, silences witnesses, and unlocks the *People's Champion* ending. |
+| 🎯 Wet work | Order **hits** on rival crew leadership to permanently weaken a district, or deal with **witnesses** — high reward, but heat and trust suffer and a civilian partner will never look at you the same way. |
 | 🚨 Heat | Above 70, dawn raids become likely. At 100, a major crackdown torches everything. Bribe, hire fixers, or lie low until dawn. |
-| 🎭 Events | 29 dilemmas — Gentlemen-style aristocratic capers plus a gang layer straight out of Top Boy/Power/Snowfall: torched vans, truce summits, snitches in the firm, runners getting jumped, poaching, tribute demands. Choices have consequences. |
-| 🏆 Extras | 15 achievements, and a living scenery panel: the sky cycles dawn→night with a moving sun and moon, stars come out, the manor's windows light up, and a police car rolls in when you're running hot. |
+| 🎭 Events | 31 dilemmas — Gentlemen-style aristocratic capers plus a gang layer straight out of Top Boy/Power/Snowfall: torched vans, truce summits, snitches, witnesses, runners jumped, poaching, tribute demands. Choices have consequences. |
+| 🏆 Extras | 18 achievements, procedural sound effects (with a mute toggle), an animated title screen, and a living scenery panel: the sky cycles dawn→night with a moving sun and moon, stars come out, the manor's windows light up, and a police car rolls in when you're running hot. |
 
-**Win:** bank **£500,000 clean** and buy *The Gentleman's Exit* — how cleanly you
-played (raids survived, final heat, reputation) decides which of four endings you get.
+**Win:** bank **£500,000 clean** and buy *The Gentleman's Exit*. How you lived —
+family and clean hands, community goodwill, a trail of bodies, low heat, or high
+reputation — decides which of seven endings you get.
 
 Controls: tap/click everything. Speed controls (⏸ 1× 2× 4×) and a 🌙 *Dawn* skip live in
 the top bar. Progress autosaves to `localStorage` every 15 seconds.

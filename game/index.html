@@ -194,6 +194,29 @@
   .ach.no{opacity:.45; filter:grayscale(1);}
   .invrow{display:flex; align-items:center; gap:10px; padding:8px 2px; border-bottom:1px solid var(--line);}
   .hirebtn{white-space:nowrap;}
+
+  /* ── Title screen ── */
+  #title{position:fixed; inset:0; z-index:400; display:flex; align-items:center; justify-content:center;
+    background:radial-gradient(1000px 700px at 50% 15%, #14351f, #060b08 72%);}
+  #title::after{content:''; position:absolute; inset:0; pointer-events:none;
+    box-shadow:inset 0 0 180px rgba(0,0,0,.7);}
+  #title .tbox{text-align:center; padding:30px; max-width:400px; width:100%; position:relative; z-index:1;}
+  #title .tlogo{font-size:62px; animation:tfloat 3.5s ease-in-out infinite;}
+  @keyframes tfloat{0%,100%{transform:translateY(0);}50%{transform:translateY(-10px);}}
+  #title h1{font-size:40px; color:var(--gold); margin:6px 0 2px; text-shadow:0 0 32px rgba(217,180,91,.45);}
+  #title .tag{color:var(--ink-dim); margin:4px 0 24px; letter-spacing:3px; text-transform:uppercase; font-size:11.5px;}
+  #title button{display:block; width:100%; margin:9px 0; padding:13px; font-size:16px;}
+  #title .tiny{font-size:10.5px; color:var(--ink-dim); margin-top:18px;}
+
+  /* ── Tab-switch animation ── */
+  #view.anim .card{animation:cardIn .3s both;}
+  @keyframes cardIn{from{opacity:0; transform:translateY(10px);} to{opacity:1;}}
+
+  /* ── Life tab ── */
+  .bar.love i{background:#e26fa0;}
+  .bar.trust i{background:var(--gold);}
+  .lbar{width:100%; height:8px; margin:7px 0 3px;}
+  .heart{color:#e26fa0;}
 </style>
 </head>
 <body>
@@ -301,14 +324,28 @@
     <button id="tab-street" onclick="A.tab('street')"><span class="bdg hidden" id="bdgOffers"></span><span class="ico">🤝</span>Street</button>
     <button id="tab-crew"   onclick="A.tab('crew')"><span class="ico">🎩</span>Crew</button>
     <button id="tab-biz"    onclick="A.tab('biz')"><span class="ico">🏛️</span>Business</button>
+    <button id="tab-life"   onclick="A.tab('life')"><span class="bdg hidden" id="bdgLife"></span><span class="ico">❤️</span>Life</button>
     <button id="tab-ledger" onclick="A.tab('ledger')"><span class="ico">📜</span>Ledger</button>
   </nav>
 
   <main id="view"></main>
 </div>
 
+<button id="muteBtn" onclick="A.mute()" title="Sound on/off" style="position:fixed; right:10px; bottom:calc(72px + env(safe-area-inset-bottom)); z-index:60; width:42px; height:42px; border-radius:50%; background:#122419; border:1px solid var(--line); font-size:18px; box-shadow:0 3px 12px rgba(0,0,0,.5);">🔊</button>
+
 <div id="toasts"></div>
 <div id="modalback" class="hidden"><div id="modal"></div></div>
+
+<div id="title">
+  <div class="tbox">
+    <div class="tlogo">🌿</div>
+    <h1>Emerald Estates</h1>
+    <div class="tag">An Underground Empire</div>
+    <button class="gold" id="tContinue" onclick="A.startGame(false)">Continue</button>
+    <button class="ghost" id="tNew" onclick="A.startGame(true)">New Empire</button>
+    <div class="tiny">A work of satirical fiction · Plays offline · Autosaves<br>Tap anywhere to enable sound</div>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -369,6 +406,40 @@ const LUXURY = [
   {id:'pent',  name:'Docklands Penthouse',      em:'🌃', cost:60000,  cur:'bank', rep:40, perk:'Heat cools 3 extra points every dawn.'},
   {id:'art',   name:'Private Art Collection',   em:'🖼️', cost:100000, cur:'bank', rep:60, perk:"The Gentleman's Exit costs £50,000 less."},
 ];
+
+/* ── Relationships ───────────────────────────────────────────────── */
+// trade:true means they know the life (unfazed by heat/hits); civilian=false.
+const PEOPLE = [
+  {id:'flora', name:'Florence "Flora" Bell', em:'💐', trade:false, role:'Florist on the high street',
+    likes:'quiet, generous, low-profile living', hates:'heat and violence',
+    perk:'A civilian home base: heat cools 2 extra every dawn.',
+    date:{cost:300, cur:'cash', name:'flowers & a walk in the park'},
+    blurb:'Runs the flower shop that fronts nothing at all. Wants a normal life with someone who isn\'t normal.'},
+  {id:'nia', name:'Nia Okafor', em:'🕶️', trade:true, role:'Lieutenant, a rival crew',
+    likes:'ambition, turf, strength', hates:'weakness and snitching',
+    perk:'Street-wise partner: rival turf take-backs are far less likely.',
+    date:{cost:800, cur:'cash', name:'a night at the Velvet Fox'},
+    blurb:'Dagger Eddie\'s right hand. Sharp, loyal, dangerous. Loves a winner and despises a grass.'},
+  {id:'grace', name:'Grace Adeyemi', em:'⚖️', trade:true, role:'Defence solicitor',
+    likes:'risk, power, a good scandal', hates:'boredom',
+    perk:'Pillow-talk legal cover: raids seize 25% less.',
+    date:{cost:1500, cur:'bank', name:'dinner at a Michelin place'},
+    blurb:'The barrister who keeps half the city out of prison. Bored of safe men. Drawn to the fire.'},
+  {id:'kojo', name:'Kojo "K-Flow" Mensah', em:'🎤', trade:false, role:'Grime artist on the rise',
+    likes:'status, flash, being seen', hates:'looking broke',
+    perk:'Famous partner: your reputation grows 20% faster.',
+    date:{cost:2500, cur:'cash', name:'a video shoot and an afterparty'},
+    blurb:'Blowing up fast. Puts your name in bars and your face on the \'gram. Needs you to look the part.'},
+];
+const COMMUNITY = [
+  {id:'youth',   name:'Kettle Lane Youth Club',   em:'🏓', cost:4000,  trust:15, upkeep:100, blurb:'Somewhere for the kids to be that isn\'t your corner.'},
+  {id:'pantry',  name:'The Free Food Pantry',     em:'🥫', cost:8000,  trust:20, upkeep:200, blurb:'Nobody grasses on the man who feeds the estate.'},
+  {id:'boxing',  name:'Youth Boxing Programme',   em:'🥊', cost:15000, trust:25, upkeep:300, blurb:'Channels the aggression. Also spots talent early.'},
+  {id:'scholar', name:'The Bell Scholarship Fund',em:'🎓', cost:30000, trust:35, upkeep:500, blurb:'Sends estate kids to university. They remember.'},
+  {id:'centre',  name:'The People\'s Centre',      em:'🏛️', cost:60000, trust:50, upkeep:900, blurb:'A leisure centre, clinic and hall. You cut the ribbon.'},
+];
+const PEOPLE_CROSS = 60;   // affection to commit
+const PEOPLE_MARRY = 90;   // affection to marry
 const FRONTS = [
   {id:'butcher',    name:'Meat & Greet Butchers',     em:'🥩', cost:3000,  launder:400,   blurb:'Nobody audits sausages.'},
   {id:'laundrette', name:'Bubble Duchess Laundrette', em:'🫧', cost:8000,  launder:1000,  blurb:'Washing money and socks since Tuesday.'},
@@ -403,6 +474,9 @@ const ACH = [
   {id:'turf1',     em:'🗺️', name:'First Blood',            desc:'Take your first corner'},
   {id:'kingpin',   em:'🔱', name:'Top of the Food Chain',  desc:'Run every district in the city'},
   {id:'lux3',      em:'💎', name:'A Taste for It',         desc:'Own three luxuries'},
+  {id:'love',      em:'💍', name:'Settling Down',          desc:'Marry someone'},
+  {id:'family',    em:'👶', name:'For the Family',         desc:'Start a family'},
+  {id:'people',    em:'🕊️', name:"The People's Champion",  desc:'Reach 100 Community Trust'},
   {id:'won',       em:'🏝️', name:"The Gentleman's Exit",   desc:'Retire spotless'},
 ];
 const EXIT_COST = 500000;
@@ -413,16 +487,19 @@ const SAVE_KEY = 'emerald_estates_v1';
 let S = null;
 function freshState(){
   return {
-    v:3, day:1, min:480, minF:480, absMin:480, speed:1, tab:'grow',
-    cash:250, bank:0, heat:0, rep:0,
+    v:4, day:1, min:480, minF:480, absMin:480, speed:1, tab:'grow',
+    cash:250, bank:0, heat:0, rep:0, trust:0,
     inv:{}, seeds:{}, market:{},
     estates:{ shed:{ owned:true, autoReplant:false, plots:mkPlots(2) } },
-    staff:[], fronts:{}, upgrades:{}, turf:{}, luxury:{},
+    staff:[], fronts:{}, upgrades:{}, turf:{}, luxury:{}, community:{},
+    people:{}, dateDoneDay:0, married:null, family:[],
+    hits:{},
     offers:[], nextOfferId:1,
     contracts:[], nextContractId:1,
     eventMin:null, eventDoneDay:0,
     ach:{}, log:[], won:false,
-    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, daysPlayed:1},
+    muted:false,
+    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, daysPlayed:1},
     seenIntro:false,
   };
 }
@@ -459,6 +536,14 @@ function lux(id){ return !!S.luxury[id]; }
 function exitCost(){ return EXIT_COST-(lux('art')?50000:0); }
 function ownedTurf(){ return DISTRICTS.filter(d=>S.turf[d.id]); }
 function unownedTurf(){ return DISTRICTS.filter(d=>!S.turf[d.id]); }
+function person(id){ return PEOPLE.find(p=>p.id===id); }
+function aff(id){ return S.people[id]||0; }
+function partnered(id){ return S.married===id; }
+function community(id){ return !!S.community[id]; }
+function addTrust(n){ S.trust=clamp(S.trust+n,0,100); }
+function repMult(){ return partnered('kojo')?1.2:1; }
+function addRepBase(n){ addRep(n*repMult()); }
+function district(id){ return DISTRICTS.find(d=>d.id===id); }
 
 function log(msg, bad){
   S.log.unshift({t:clockStr(), msg, bad:!!bad});
@@ -469,7 +554,7 @@ function toast(msg, bad){
   $('toasts').appendChild(t);
   setTimeout(()=>{ t.style.transition='opacity .4s'; t.style.opacity='0'; setTimeout(()=>t.remove(),450); }, 3400);
 }
-function addRep(n){ S.rep = Math.max(0, Math.round(S.rep+n)); }
+function addRep(n){ if(n>0) n*=repMult(); S.rep = Math.max(0, Math.round(S.rep+n)); }
 function addHeat(n){ S.heat = clamp(S.heat+n, 0, 100); if(S.heat>=100) bigRaid(); }
 function earnCash(n){ S.cash+=n; S.stats.earned+=n; }
 
@@ -492,6 +577,31 @@ function fxBurst(em, n){
   }
 }
 function shake(){ document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
+
+/* ── Procedural sound (WebAudio, no assets) ──────────────────────── */
+let AC=null;
+function audioInit(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC && AC.state==='suspended') AC.resume(); }
+function tone(freq, dur, type, vol, slideTo){
+  if(!AC || (S&&S.muted)) return;
+  const o=AC.createOscillator(), g=AC.createGain();
+  o.type=type||'sine'; o.frequency.value=freq;
+  if(slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, AC.currentTime+dur);
+  g.gain.value=vol||0.08;
+  g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime+dur);
+  o.connect(g); g.connect(AC.destination);
+  o.start(); o.stop(AC.currentTime+dur);
+}
+const SFX={
+  click:()=>tone(420,0.05,'square',0.05),
+  buy:  ()=>{tone(523,0.09,'triangle',0.09); setTimeout(()=>tone(784,0.12,'triangle',0.09),80);},
+  cash: ()=>{tone(880,0.07,'sine',0.08); setTimeout(()=>tone(1174,0.1,'sine',0.07),70);},
+  plant:()=>tone(300,0.12,'sine',0.06,520),
+  love: ()=>{tone(659,0.1,'sine',0.08); setTimeout(()=>tone(988,0.16,'sine',0.07),90);},
+  bad:  ()=>tone(180,0.3,'sawtooth',0.09,60),
+  win:  ()=>{[523,659,784,1046].forEach((f,i)=>setTimeout(()=>tone(f,0.22,'triangle',0.09),i*110));},
+};
+function sfx(name){ if(S&&S.muted) return; audioInit(); (SFX[name]||SFX.click)(); }
 
 /* ── Achievements ────────────────────────────────────────────────── */
 function award(id){
@@ -518,6 +628,9 @@ function chkAch(){
   if(t>=1) award('turf1');
   if(t>=DISTRICTS.length) award('kingpin');
   if(Object.keys(S.luxury).length>=3) award('lux3');
+  if(S._weddings && Object.keys(S._weddings).length) award('love');
+  if(S.family.length) award('family');
+  if(S.trust>=100) award('people');
   if(S.won) award('won');
 }
 
@@ -554,7 +667,7 @@ function harvestPlot(eid,p,auto){
     if(S.seeds[sid]>0){ S.seeds[sid]--; p.strain=sid; p.water=100; }
     else if(S.cash>=st.seed){ S.cash-=st.seed; p.strain=sid; p.water=100; }
   }
-  if(!auto){ toast(`Harvested <b>${y}× ${st.name}</b>${wasDry?' (drought-stunted)':''}`); fxBurst('🍃',7); fxText('+'+y+' '+st.em,'#8fd8a8'); }
+  if(!auto){ toast(`Harvested <b>${y}× ${st.name}</b>${wasDry?' (drought-stunted)':''}`); fxBurst('🍃',7); fxText('+'+y+' '+st.em,'#8fd8a8'); sfx('buy'); }
   else log(`Gardener harvested ${y}× ${st.name} at ${ESTATES.find(e=>e.id===eid).name}.`);
   chkAch();
 }
@@ -594,7 +707,7 @@ function sellToOffer(o){
   S.offers=S.offers.filter(x=>x.id!==o.id);
   log(`Sold ${q}× ${strain(o.strain).name} on the street for ${fmt(total)}.`);
   toast(`💷 +${fmt(total)} cash <span class="muted">(+${o.heat} heat)</span>`);
-  fxText('+'+fmt(total),'#d9b45b'); fxBurst('💷',5);
+  fxText('+'+fmt(total),'#d9b45b'); fxBurst('💷',5); sfx('cash');
   chkAch();
   render();
 }
@@ -687,9 +800,13 @@ function settle(){
   if(held.length){
     const inc=held.reduce((a,d)=>a+d.income,0);
     earnCash(inc);
-    S.heat=clamp(S.heat+held.length,0,100);
-    notes.push(`Your corners kicked up ${fmt(inc)} street cash. (+${held.length} heat)`);
-    if(Math.random() < 0.12+0.03*held.length){
+    const turfHeat=held.reduce((a,d)=>a+d.str,0);   // heat scales with district strength
+    S.heat=clamp(S.heat+turfHeat,0,100);
+    notes.push(`Your corners kicked up ${fmt(inc)} street cash. (+${turfHeat} heat)`);
+    // take-back chance rises with number of districts held; Nia and dead rival leaders soften it
+    let tbChance=(0.10+0.05*held.length)*(partnered('nia')?0.4:1);
+    for(const d of held){ if(S.hits[d.id]) tbChance*=0.6; }
+    if(Math.random() < tbChance){
       const d=pick(held);
       if(countRole('enforcer')>=d.str){
         addRep(5); S.cash=Math.max(0,S.cash-500);
@@ -700,14 +817,27 @@ function settle(){
       }
     }
   }
+  // community upkeep (cash) + trust decay drift toward investment level
+  let upkeep=0; for(const c of COMMUNITY){ if(S.community[c.id]) upkeep+=c.upkeep; }
+  if(upkeep>0){
+    if(S.cash>=upkeep){ S.cash-=upkeep; notes.push(`Community upkeep: ${fmt(upkeep)}.`); }
+    else { addTrust(-8); notes.push(`Couldn't fund the community projects. Trust slips. (-8 trust)`); }
+  }
+  // family stipend (cash) — the cost, and the reason, to get out clean
+  if(S.family.length){
+    const keep=S.family.length*200;
+    if(S.cash>=keep){ S.cash-=keep; notes.push(`Family upkeep: ${fmt(keep)}.`); }
+    else if(S.bank>=keep){ S.bank-=keep; notes.push(`Family upkeep from the bank: ${fmt(keep)}.`); }
+    else { addTrust(-2); notes.push('Money was tight at home this week.'); }
+  }
   // racehorse
   if(lux('horse')){
     const r=Math.random();
     if(r<0.2){ const w=ri(1000,4000); S.bank+=w; S.stats.earned+=w; notes.push(`Liquid Asset romped home at Ascot: +${fmt(w)} (bank).`); }
     else if(r<0.25){ S.cash=Math.max(0,S.cash-800); notes.push('Vet bill for Liquid Asset: £800. He regrets nothing.'); }
   }
-  // heat decay
-  let cool=4 + countRole('fixer')*10 + (lux('pent')?3:0);
+  // heat decay (fixers, penthouse, civilian partner, community trust)
+  let cool=4 + countRole('fixer')*10 + (lux('pent')?3:0) + (partnered('flora')?2:0) + Math.floor(S.trust/25);
   if(S.heat>0){ const before=S.heat; S.heat=clamp(S.heat-cool,0,100);
     notes.push(`Heat cooled ${before}→${S.heat}.`); }
   // contracts: expire + maybe generate
@@ -730,10 +860,10 @@ function settle(){
 }
 
 /* ── Raids ───────────────────────────────────────────────────────── */
-function raidSeverity(){ return (countRole('barrister')>0?0.5:1) * (up('vault')?0.5:1); }
+function raidSeverity(){ return (countRole('barrister')>0?0.5:1) * (up('vault')?0.5:1) * (partnered('grace')?0.75:1); }
 function raid(){
   S.stats.raids++;
-  shake();
+  shake(); sfx('bad');
   const sev=raidSeverity();
   const e=pick(ownedEstates());
   const est=S.estates[e.id];
@@ -955,6 +1085,28 @@ const EVENTS = [
     ]
   },
   {
+    title:'A Witness', em:'👁️',
+    text:'Someone saw something they shouldn\'t have — a face, a plate, a handoff. They haven\'t gone to the police yet. But they\'re thinking about it.',
+    cond:()=>S.heat>=35 && S.trust<70,
+    choices:[
+      {t:'Pay them off (£2,000 cash)', s:'Clean, expensive, safe', f(){ if(S.cash<2000)return 'Not enough cash.'; S.cash-=2000; addHeat(-5); return 'A quiet envelope and a quiet understanding. They saw nothing. -5 heat.'; }},
+      {t:'Make them disappear', s:'Needs an enforcer · heavy cost', f(){ if(!countRole('enforcer'))return 'You have no one for that kind of work.'; addHeat(6); addTrust(-12); S.stats.hits++;
+        const pr=S.married&&person(S.married); let n='';
+        if(pr&&!pr.trade){ S.people[S.married]=clamp(aff(S.married)-20,0,100); n=` ${pr.name.split(' ')[0]} will wonder where you were tonight. (-20 ♥)`; }
+        return 'The witness moves away suddenly. No forwarding address. The street gets colder. -12 trust, +6 heat.'+n; }},
+      {t:'Do nothing and hope', s:'50% they talk', f(){ if(Math.random()<0.5){ addHeat(20); return 'They talked. The station has a new file. +20 heat.'; } return 'They thought better of it. This time.'; }},
+    ]
+  },
+  {
+    title:'The Estate Speaks Up', em:'🕊️',
+    text:'A community meeting is called about "the goings-on". With enough goodwill in the area, this could go either way.',
+    cond:()=>S.heat>=30,
+    choices:[
+      {t:'Let the community vouch for you', s:'Needs 40+ trust', f(){ if(S.trust<40)return 'The estate doesn\'t trust you enough for that.'; addHeat(-18); return 'Neighbours you\'ve fed and funded stand up and call you a pillar of the community. The police leave with nothing. -18 heat.'; }},
+      {t:'Send a donation and stay away', s:'-6 heat, costs £1,000', f(){ if(S.cash<1000)return 'Not enough cash.'; S.cash-=1000; addHeat(-6); addTrust(3); return 'A generous, anonymous gift to the residents\' association. -6 heat, +3 trust.'; }},
+    ]
+  },
+  {
     title:'A Message, Written in Petrol', em:'🔥',
     text:'One of your vans is a smoking shell by morning. A note under the wiper, in careful handwriting: "Wrong side of the canal."',
     cond:()=>ownedTurf().length>=1,
@@ -1111,7 +1263,7 @@ const A = {
     else { toast('Not enough cash.',true); return; }
     const p=S.estates[eid].plots[i];
     p.strain=sid; p.grown=0; p.water=100; p.dry=false;
-    closeModal(); toast(`Planted ${st.em} ${st.name}.`); fxBurst('🌱',4); save();
+    closeModal(); toast(`Planted ${st.em} ${st.name}.`); fxBurst('🌱',4); sfx('plant'); save();
   },
   autoReplant(eid){ S.estates[eid].autoReplant=!S.estates[eid].autoReplant; render(); save(); },
 
@@ -1122,7 +1274,7 @@ const A = {
     S.estates[id]={owned:true, autoReplant:false, plots:mkPlots(e.plots+(up('greenhouse')?2:0))};
     log(`Leased ${e.name} from ${e.lord}.`);
     toast(`🏛️ <b>${e.name}</b> is yours.`);
-    fxBurst('🏛️',5);
+    fxBurst('🏛️',5); sfx('buy');
     chkAch(); render(); save();
   },
 
@@ -1206,15 +1358,17 @@ const A = {
     const d=DISTRICTS.find(x=>x.id===id);
     if(!d||S.turf[id]) return;
     const enf=countRole('enforcer');
-    const cost=d.str*1000;
-    if(enf<d.str){ toast(`You need at least ${d.str} enforcer${d.str>1?'s':''} for ${d.name}.`,true); return; }
+    const weakened=!!S.hits[id];
+    const need=weakened?Math.max(1,d.str-1):d.str;
+    const cost=weakened?Math.round(d.str*1000*0.5):d.str*1000;
+    if(enf<need){ toast(`You need at least ${need} enforcer${need>1?'s':''} for ${d.name}.`,true); return; }
     if(S.cash<cost){ toast('Not enough cash to fund the move.',true); return; }
     S.cash-=cost;
-    const p=Math.min(0.9, 0.5+0.15*(enf-d.str));
+    const p=Math.min(0.95, 0.5+0.15*(enf-need)+(weakened?0.25:0));
     if(Math.random()<p){
       S.turf[id]=true; addHeat(10); addRep(10*d.str); S.stats.turf++;
       log(`Took ${d.name} from ${d.crew}. (+${10*d.str} rep, +10 heat)`);
-      fxBurst('⚔️',6); shake();
+      fxBurst('⚔️',6); shake(); sfx('win');
       showModal(`<h2>⚔️ ${d.name} Is Yours</h2>
         <p>Your enforcers moved at closing time. By sunrise, ${d.crew} were nursing bruises and the corner was yours.</p>
         <p class="muted">+${fmt(d.income)}/day street cash at dawn · +${10*d.str} rep · +10 heat. They will want it back — keep ${d.str}+ enforcers on the books.</p>
@@ -1233,6 +1387,130 @@ const A = {
     }
     chkAch(); render(); save();
   },
+  /* ── Relationships ── */
+  date(id){
+    const p=person(id);
+    if(S.dateDoneDay===S.day){ toast('You\'ve already spent your evening today.',true); return; }
+    const funds=p.date.cur==='bank'?S.bank:S.cash;
+    if(funds<p.date.cost){ toast('Not enough for a proper date.',true); return; }
+    if(p.date.cur==='bank') S.bank-=p.date.cost; else S.cash-=p.date.cost;
+    S.dateDoneDay=S.day;
+    // affection gain, modified by whether your life suits them
+    let gain=ri(8,14);
+    let flavor='';
+    if(!p.trade && S.heat>=60){ gain-=6; flavor=` ${p.name.split(' ')[0]} noticed the police interest. It cooled the mood.`; }
+    if(p.id==='nia' && ownedTurf().length>=1){ gain+=4; flavor=' Talk of the takeover clearly did something for her.'; }
+    if(p.id==='grace' && S.heat>=40){ gain+=4; flavor=' The whiff of danger only drew her closer.'; }
+    if(p.id==='kojo' && Object.keys(S.luxury).length>=2){ gain+=4; flavor=' Being seen with you, dripping, is exactly her brand.'; }
+    if(p.id==='kojo' && Object.keys(S.luxury).length===0){ gain-=4; flavor=' She\'d hoped you\'d show up flashier.'; }
+    S.people[id]=clamp(aff(id)+gain,0,100);
+    S.stats.dates++;
+    sfx('love');
+    log(`Took ${p.name} out for ${p.date.name}. (+${gain} affection)`);
+    toast(`${p.em} A lovely evening with <b>${p.name.split(' ')[0]}</b>. <span class="heart">+${gain} ♥</span>${flavor?' '+flavor:''}`);
+    fxBurst('❤️',5);
+    chkAch(); render(); save();
+  },
+  commit(id){
+    const p=person(id);
+    if(aff(id)<PEOPLE_CROSS){ toast('It\'s not there yet. Keep spending time together.',true); return; }
+    if(S.married && S.married!==id){ toast('You\'re already committed to someone else.',true); return; }
+    S.married=id; if(aff(id)<70) S.people[id]=70;
+    log(`Made it official with ${p.name}.`);
+    toast(`${p.em} You and <b>${p.name.split(' ')[0]}</b> are officially together. <span class="muted">${p.perk}</span>`);
+    fxBurst('❤️',8);
+    chkAch(); render(); save();
+  },
+  marry(id){
+    const p=person(id);
+    if(!partnered(id)){ toast('Commit first.',true); return; }
+    if(aff(id)<PEOPLE_MARRY){ toast('Not yet — grow closer first.',true); return; }
+    if(S.married!=='m:'+id){ /* mark married via flag */ }
+    S._weddings=S._weddings||{}; S._weddings[id]=true;
+    addRep(30);
+    log(`Married ${p.name}.`);
+    award('love');
+    sfx('win');
+    showModal(`<h2>💍 A Wedding</h2>
+      <p>You and <b>${p.name}</b> are married. ${p.trade?'Two people who know exactly what the other does — and chose each other anyway.':'They know what you are now. They married you anyway. That means something.'}</p>
+      <p class="muted">Perk secured: ${p.perk}</p>
+      <div class="choices">
+      <button class="gold" onclick="A.startFamily('${id}')">Start a family together</button>
+      <button class="ghost" onclick="A.close()">Just the two of us, for now</button></div>`);
+    fxBurst('💍',10);
+    chkAch(); render(); save();
+  },
+  startFamily(id){
+    const p=person(id);
+    if(!S._weddings || !S._weddings[id]){ toast('Marry first.',true); return; }
+    if(S.family.length>=3){ toast('Your household is full and loud enough.',true); return; }
+    const kid=pick(['a daughter','a son','twins','a little one']);
+    S.family.push({parent:id, who:kid});
+    addRepBase(10);
+    log(`Started a family with ${p.name}: ${kid}.`);
+    award('family');
+    showModal(`<h2>👶 A Family</h2>
+      <p>Congratulations — ${kid}. Everything is different now. There's someone to get out clean <i>for</i>.</p>
+      <p class="muted">Family costs a little cash each dawn, but changes how your story can end.</p>
+      <div class="choices"><button class="gold" onclick="A.close()">Hold them close</button></div>`);
+    fxBurst('👶',8);
+    chkAch(); render(); save();
+  },
+
+  /* ── Wet work ── */
+  orderHit(id){
+    const d=district(id);
+    showModal(`<h2>🎯 A Word With ${d.crew}</h2>
+      <p>You can have ${d.crew}'s leadership removed. Their district is permanently weakened — cheaper to take, far less likely to fight back — but this is the line a lot of people never come back from.</p>
+      <p class="muted">Cost: <b class="dirty">${fmt(d.str*3000)}</b> cash · <b class="bad">+${d.str*4} heat</b> · your civilian partner will not approve · community trust falls.</p>
+      <div class="choices">
+      <button class="danger" onclick="A.doHit('${id}')">Give the order (${fmt(d.str*3000)})</button>
+      <button class="ghost" onclick="A.close()">Not today</button></div>`);
+  },
+  doHit(id){
+    const d=district(id);
+    const cost=d.str*3000;
+    if(S.cash<cost){ toast('Not enough cash for that kind of work.',true); closeModal(); return; }
+    S.cash-=cost;
+    S.hits[id]=true;
+    addHeat(d.str*4);
+    addTrust(-15);
+    S.stats.hits++;
+    shake(); sfx('bad');
+    // civilian partner recoils
+    let partnerNote='';
+    const pr=S.married && person(S.married);
+    if(pr && !pr.trade){ S.people[S.married]=clamp(aff(S.married)-25,0,100); partnerNote=` ${pr.name.split(' ')[0]} can see it on you. Something closed off in them. (-25 ♥)`; }
+    log(`Ordered a hit on ${d.crew}'s leadership. (+${d.str*4} heat, -15 trust)`,true);
+    showModal(`<h2>🎯 It's Done</h2>
+      <p>${d.crew} are leaderless and reeling. ${d.name} will fall easily now and they won't be taking it back in a hurry.</p>
+      <p class="bad">${partnerNote||'The street got a little colder tonight.'}</p>
+      <div class="choices"><button onclick="A.close()">Live with it</button></div>`);
+    chkAch(); render(); save();
+  },
+
+  /* ── Community ── */
+  invest(id){
+    const c=COMMUNITY.find(x=>x.id===id);
+    if(S.community[id]) return;
+    if(S.cash<c.cost){ toast('Not enough cash.',true); return; }
+    S.cash-=c.cost; S.community[id]=true;
+    addTrust(c.trust); addRepBase(Math.round(c.trust/2));
+    log(`Invested in ${c.name}. (+${c.trust} community trust)`);
+    toast(`${c.em} <b>${c.name}</b> is open. The estate notices. <span class="muted">+${c.trust} trust</span>`);
+    fxBurst('🕊️',5); sfx('buy');
+    chkAch(); render(); save();
+  },
+
+  /* ── Sound & title ── */
+  mute(){ S.muted=!S.muted; $('muteBtn').textContent=S.muted?'🔇':'🔊'; if(!S.muted) sfx('click'); save(); },
+  startGame(fresh){
+    audioInit();
+    if(fresh){ localStorage.removeItem(SAVE_KEY); S=freshState(); rollMarket(); }
+    $('title').style.display='none';
+    if(!S.seenIntro) intro(); else render();
+  },
+
   bribe(){
     const cost=Math.round(300+S.heat*25);
     if(S.cash<cost){ toast('Not enough cash.',true); return; }
@@ -1275,9 +1553,17 @@ const A = {
   buyExit(){
     if(S.bank<exitCost()){ toast('Not enough clean money.',true); return; }
     S.bank-=exitCost(); S.won=true; S.speed=0;
+    // Endings are chosen by how you lived — family and community first, then style.
     let title="🏝️ The Gentleman's Exit",
         flavor='Papers signed. Assets legitimised. A villa on the Riviera, a knighthood pending, and not a single fingerprint anywhere.';
-    if(S.stats.raids===0){ title='🕊️ The Immaculate Exit';
+    const married=S._weddings&&Object.keys(S._weddings)[0];
+    if(S.family.length && S.stats.hits===0){ title='👨‍👩‍👧 Out, For Them';
+      flavor=`You never crossed the final line, and now you never will. ${person(married).name.split(' ')[0]} and the kids don't know the half of it — and they never need to. A quiet house by the sea, and every dinner at the table. This was always the point.`; }
+    else if(S.trust>=100){ title='🕊️ The People\'s Champion';
+      flavor='The estate throws a street party the day you "retire". Youth clubs, scholarships, the centre with your name on the wall — they\'ll never know where the money came from, and they\'d forgive you if they did. You didn\'t just take from the ends. You built something.'; }
+    else if(S.stats.hits>=3){ title='👑 King of the City';
+      flavor='You leave a throne, not a life. Rivals buried, corners held, a name whispered with fear from the docks to the West End. You got everything you wanted. The villa is very quiet. You find you don\'t sleep much.'; }
+    else if(S.stats.raids===0){ title='🕊️ The Immaculate Exit';
       flavor='Not one raid. Not one arrest. The police file on you is a single blank page. Scholars will argue you never existed.'; }
     else if(S.rep>=800){ title='👑 A Legend Departs';
       flavor='Ballads are sung in the villages. Lords name greenhouses after you. You leave not as a criminal, but as folklore.'; }
@@ -1287,8 +1573,9 @@ const A = {
     showModal(`<h2>${title}</h2>
       <p>${flavor}</p>
       <p><b>You won in ${S.day} days.</b></p>
-      <p class="muted">Sold ${S.stats.sold} units · earned ${fmt(S.stats.earned)} · laundered ${fmt(S.stats.laundered)} ·
-      ${S.stats.contracts} contracts · survived ${S.stats.raids} raids ·
+      <p class="muted">Sold ${S.stats.sold} units · earned ${fmt(S.stats.earned)} · ${S.stats.contracts} contracts ·
+      ${S.stats.turf} corners · ${S.stats.hits} hits · survived ${S.stats.raids} raids ·
+      ${married?'married · ':''}${S.family.length?S.family.length+' in the family · ':''}${Math.round(S.trust)} trust ·
       ${Object.keys(S.ach).length}/${ACH.length} achievements.</p>
       <div class="choices"><button class="gold" onclick="A.newGame(true)">New Empire</button>
       <button class="ghost" onclick="A.close()">Linger a while</button></div>`);
@@ -1396,18 +1683,24 @@ function renderHUD(){
   const n=S.offers.length+S.contracts.length;
   if(n){ b.textContent=n; b.classList.remove('hidden'); }
   else b.classList.add('hidden');
+  const bl=$('bdgLife');
+  const datable=PEOPLE.some(p=>aff(p.id)>0 && aff(p.id)<100) && S.dateDoneDay!==S.day;
+  if(datable){ bl.textContent='♥'; bl.classList.remove('hidden'); } else bl.classList.add('hidden');
   document.querySelectorAll('#tabs button').forEach(x=>x.classList.remove('on'));
   const tb=$('tab-'+S.tab); if(tb) tb.classList.add('on');
   document.querySelectorAll('#speed button').forEach(x=>x.classList.remove('on'));
   const sp=$('sp'+S.speed); if(sp) sp.classList.add('on');
+  const mb=$('muteBtn'); if(mb) mb.textContent=S.muted?'🔇':'🔊';
   updateScene();
 }
 
+let lastTab=null;
 function render(){
   renderHUD();
   if(modalOpen) return;
   const v=$('view');
-  ({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, ledger:rLedger}[S.tab]||rGrow)(v);
+  ({grow:rGrow, street:rStreet, crew:rCrew, biz:rBiz, life:rLife, ledger:rLedger}[S.tab]||rGrow)(v);
+  if(S.tab!==lastTab){ lastTab=S.tab; v.classList.remove('anim'); void v.offsetWidth; v.classList.add('anim'); }
 }
 
 function estateArtHTML(e, locked){
@@ -1503,18 +1796,23 @@ function rStreet(v){
   h+=`<div class="card"><h3>🕶️ Runners</h3><div class="sub">${d?`${d} runner${d>1?'s':''} moving product automatically at ${up('cellar')?90:80}% value (10:00–22:00).`:'No runners. Hire some in Crew to sell while you sleep.'}</div></div>`;
 
   const enf=countRole('enforcer');
-  h+=`<div class="card"><h3>🗺️ Turf</h3><div class="sub">Five districts, five crews. Take corners with <b>Enforcers</b> (hire in Crew) — held turf pays street cash every dawn, but rivals will try to take it back and every corner adds a little heat. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div></div>`;
+  h+=`<div class="card"><h3>🗺️ Turf</h3><div class="sub">Five districts, five crews. Take corners with <b>Enforcers</b> (hire in Crew) — held turf pays street cash every dawn, but rivals will try to take it back and every corner adds heat scaled to its size. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div></div>`;
   for(const dd of DISTRICTS){
     const own=S.turf[dd.id];
-    const cost=dd.str*1000;
-    const odds=Math.round(Math.min(0.9, 0.5+0.15*(enf-dd.str))*100);
+    const weak=!!S.hits[dd.id];
+    const need=weak?Math.max(1,dd.str-1):dd.str;
+    const cost=weak?Math.round(dd.str*1000*0.5):dd.str*1000;
+    const odds=Math.round(Math.min(0.95, 0.5+0.15*(enf-need)+(weak?0.25:0))*100);
     h+=`<div class="card" style="border-left:3px solid ${own?'var(--green)':'#7a3a38'}">
       <div class="rowline"><h3>${own?'🟢':'🔴'} ${dd.name}</h3><span class="spacer"></span>
-      <span class="pill">💷 ${fmt(dd.income)}/day</span><span class="pill">💪 strength ${dd.str}</span></div>
+      <span class="pill">💷 ${fmt(dd.income)}/day</span><span class="pill">💪 strength ${dd.str}</span>${weak?'<span class="pill" style="color:var(--red)">🎯 weakened</span>':''}</div>
       <div class="sub">${dd.blurb}<br>${own
         ? `<b class="money">Yours.</b> ${dd.crew} want it back — keep ${dd.str}+ enforcers on the books.`
-        : `Run by <b>${dd.crew}</b>. A move needs <b>${dd.str} enforcer${dd.str>1?'s':''}</b> + <b class="dirty">${fmt(cost)}</b> cash.`}</div>
-      ${own?'':`<div class="offbtns"><button class="gold" onclick="A.takeover('${dd.id}')" ${enf<dd.str||S.cash<cost?'disabled':''}>Move on it${enf>=dd.str?` · ${odds}% odds`:''}</button></div>`}
+        : `Run by <b>${dd.crew}</b>. A move needs <b>${need} enforcer${need>1?'s':''}</b> + <b class="dirty">${fmt(cost)}</b> cash.`}</div>
+      ${own?'':`<div class="offbtns">
+        <button class="gold" onclick="A.takeover('${dd.id}')" ${enf<need||S.cash<cost?'disabled':''}>Move on it${enf>=need?` · ${odds}% odds`:''}</button>
+        ${weak?'':`<button class="danger" onclick="A.orderHit('${dd.id}')" ${S.cash<dd.str*3000?'disabled':''}>🎯 Order a hit</button>`}
+      </div>`}
     </div>`;
   }
   v.innerHTML=h;
@@ -1585,6 +1883,57 @@ function rBiz(v){
   v.innerHTML=h;
 }
 
+function rLife(v){
+  let h='';
+  // Community trust banner
+  h+=`<div class="card"><div class="rowline"><h3>🕊️ Community Trust</h3><span class="spacer"></span><b style="font-size:18px">${Math.round(S.trust)}/100</b></div>
+    <span class="bar lbar trust"><i style="width:${S.trust}%"></i></span>
+    <div class="sub">The estate's goodwill. High trust cools heat every dawn, quiets witnesses, and unlocks <b>The People's Champion</b> ending. Invest below.</div></div>`;
+
+  // Family / status
+  if(S.family.length || S._weddings){
+    let fam='';
+    if(S._weddings){ for(const id in S._weddings){ const p=person(id); fam+=`<span class="pill">💍 Married to ${p.name.split(' ')[0]}</span>`; } }
+    for(const k of S.family){ fam+=`<span class="pill">👶 ${k.who}</span>`; }
+    h+=`<div class="card"><h3>🏡 Your Household</h3><div style="margin-top:6px">${fam}</div>
+      <div class="sub" style="margin-top:6px">The people you're doing all this for. Family changes how your story can end.</div></div>`;
+  }
+
+  // Relationships
+  h+='<div class="card"><h3>❤️ Relationships</h3><div class="sub">Spend evenings together (once per day) to build affection. At 60 you can commit; at 90 you can marry — then start a family. Each partner grants a lasting perk. Who you choose says everything.</div></div>';
+  for(const p of PEOPLE){
+    const a=aff(p.id);
+    const committed=partnered(p.id);
+    const married=S._weddings&&S._weddings[p.id];
+    const otherPartner=S.married&&S.married!==p.id;
+    const funds=p.date.cur==='bank'?S.bank:S.cash;
+    const datedToday=S.dateDoneDay===S.day;
+    let statusPill = married?'<span class="pill" style="color:#e26fa0">💍 Married</span>'
+      : committed?'<span class="pill" style="color:#e26fa0">❤️ Together</span>'
+      : a>0?`<span class="pill">${a>=PEOPLE_MARRY?'ready to marry':a>=PEOPLE_CROSS?'ready to commit':'getting closer'}</span>`:'';
+    let btns=`<button class="gold" onclick="A.date('${p.id}')" ${funds<p.date.cost||datedToday||otherPartner||married?'disabled':''}>Take out · ${fmt(p.date.cost)}${datedToday?' (done today)':''}</button>`;
+    if(!committed && !married && a>=PEOPLE_CROSS && !otherPartner) btns+=`<button onclick="A.commit('${p.id}')">Make it official</button>`;
+    if(committed && !married && a>=PEOPLE_MARRY) btns+=`<button class="gold" onclick="A.marry('${p.id}')">💍 Propose</button>`;
+    if(married && S.family.length<3) btns+=`<button onclick="A.startFamily('${p.id}')">👶 Start a family</button>`;
+    h+=`<div class="card" ${committed||married?'style="border-color:#7a3a5a"':''}>
+      <div class="rowline"><h3>${p.em} ${p.name}</h3><span class="spacer"></span>${statusPill}</div>
+      <div class="sub">${p.role} · <span class="${p.trade?'':'muted'}">${p.trade?'knows the life':'a civilian'}</span><br>${p.blurb}<br>
+      <span class="muted">Likes ${p.likes}. Hates ${p.hates}.</span><br><b>Perk:</b> ${p.perk}</div>
+      <span class="bar lbar love"><i style="width:${a}%"></i></span>
+      <div class="offbtns" style="margin-top:8px">${btns}</div></div>`;
+  }
+
+  // Community investments
+  h+='<div class="card"><h3>🏘️ Give Back to the Community</h3><div class="sub">Put money into the estate. Each project raises Community Trust for a one-off cost plus a small daily upkeep. Skip the upkeep and trust slips.</div></div>';
+  for(const c of COMMUNITY){
+    const owned=community(c.id);
+    h+=`<div class="card"><div class="rowline"><h3>${c.em} ${c.name}</h3><span class="spacer"></span>
+      ${owned?`<span class="pill">✅ Running · ${fmt(c.upkeep)}/day`:`<button class="gold" onclick="A.invest('${c.id}')" ${S.cash<c.cost?'disabled':''}>Fund ${fmt(c.cost)}</button>`}</div>
+      <div class="sub">${c.blurb} · +${c.trust} trust${owned?'':` · ${fmt(c.upkeep)}/day upkeep`}</div></div>`;
+  }
+  v.innerHTML=h;
+}
+
 function rLedger(v){
   const st=S.stats;
   let h=`<div class="statgrid">
@@ -1596,6 +1945,8 @@ function rLedger(v){
     <div class="card"><div class="big">${st.raids}</div><div class="sub">Raids survived</div></div>
     <div class="card"><div class="big">${st.turf||0}</div><div class="sub">Corners taken</div></div>
     <div class="card"><div class="big">${ownedTurf().length}/${DISTRICTS.length}</div><div class="sub">Districts held</div></div>
+    <div class="card"><div class="big">${st.hits||0}</div><div class="sub">Hits ordered</div></div>
+    <div class="card"><div class="big">${Math.round(S.trust)}</div><div class="sub">Community trust</div></div>
   </div>`;
   const got=Object.keys(S.ach).length;
   h+=`<div class="card"><h3>🏆 Achievements <span class="pill">${got}/${ACH.length}</span></h3>
@@ -1618,20 +1969,21 @@ function intro(){
     <p class="serif" style="font-style:italic">"The British aristocracy is the finest real-estate portfolio in the world — and every acre of it is broke."</p>
     <p>You've inherited two things: a leaky allotment shed and an idea. Grow product, sell it on the street, launder the takings, and lease the cellars of England's most desperate lords — until you're rich enough to walk away spotless.</p>
     <p class="muted">🌱 <b>Grow</b>: plant, water, harvest.<br>
-    🤝 <b>Street</b>: sell to buyers, haggle hard, fulfil contracts.<br>
-    🗺️ <b>Turf</b>: hire enforcers, take corners from rival crews.<br>
-    🎩 <b>Crew</b>: gardeners, runners, enforcers, fixers, gamekeepers.<br>
-    🏛️ <b>Business</b>: launder cash → bank, withdraw when needed, buy the lifestyle.<br>
-    🏆 ${ACH.length} achievements. Market prices shift daily.<br>
-    🏝️ Bank ${fmt(EXIT_COST)} clean to win — your style decides the ending.</p>
+    🤝 <b>Street</b>: sell, haggle, fulfil contracts, take turf.<br>
+    🎩 <b>Crew</b>: gardeners, runners, enforcers, fixers.<br>
+    🏛️ <b>Business</b>: launder cash → bank, buy the lifestyle.<br>
+    ❤️ <b>Life</b>: build relationships, start a family, give back to the estate.<br>
+    🏆 ${ACH.length} achievements. Your choices — clean or bloody, loved or feared — decide your ending.<br>
+    🏝️ Bank ${fmt(EXIT_COST)} clean to win.</p>
     <div class="choices"><button class="gold" onclick="A.close()">Begin</button></div>`);
 }
 
 /* ── Main loop ───────────────────────────────────────────────────── */
 const SPEEDS={0:0,1:1,2:2,3:4};
 function tick(){
-  if(!S || S.won){ renderHUD(); return; }
+  if(!S || S.won){ if(S) renderHUD(); return; }
   if(modalOpen) return;
+  const t=$('title'); if(t && t.style.display!=='none') return;
   const rate=SPEEDS[S.speed]||0;
   if(rate===0){ renderHUD(); return; }
   S.minF += rate*0.25;
@@ -1657,7 +2009,7 @@ function load(){
     const raw=localStorage.getItem(SAVE_KEY);
     if(!raw) return null;
     const s=JSON.parse(raw);
-    if(!s || s.v<1 || s.v>3) return null;
+    if(!s || s.v<1 || s.v>4) return null;
     // migrate older saves forward
     if(s.absMin===undefined) s.absMin=(s.day-1)*1440+s.min;
     if(!s.contracts) s.contracts=[];
@@ -1667,22 +2019,33 @@ function load(){
     if(!s.seeds) s.seeds={};
     if(!s.turf) s.turf={};
     if(!s.luxury) s.luxury={};
-    if(s.stats && s.stats.contracts===undefined) s.stats.contracts=0;
-    if(s.stats && s.stats.turf===undefined) s.stats.turf=0;
-    s.v=3;
+    if(!s.community) s.community={};
+    if(!s.people) s.people={};
+    if(s.trust===undefined) s.trust=0;
+    if(s.dateDoneDay===undefined) s.dateDoneDay=0;
+    if(s.married===undefined) s.married=null;
+    if(!s.family) s.family=[];
+    if(!s.hits) s.hits={};
+    if(s.muted===undefined) s.muted=false;
+    if(s.stats){ ['contracts','turf','hits','dates'].forEach(k=>{ if(s.stats[k]===undefined) s.stats[k]=0; }); }
+    s.v=4;
     return s;
   }catch(e){}
   return null;
 }
 
 /* ── Boot ────────────────────────────────────────────────────────── */
+const hadSave = !!localStorage.getItem(SAVE_KEY);
 S = load() || freshState();
 if(!Object.keys(S.market).length) rollMarket();
-if(!S.seenIntro) intro();
-render();
+if(!hadSave){ $('tContinue').style.display='none'; }
+if($('muteBtn')) $('muteBtn').textContent=S.muted?'🔇':'🔊';
+render();  // render behind the title so it's ready
 setInterval(tick, 250);
 setInterval(save, 15000);
 window.addEventListener('visibilitychange', ()=>{ if(document.hidden) save(); });
+// first user gesture unlocks audio on mobile
+document.addEventListener('pointerdown', audioInit, {once:true});
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(()=>{});
 }
