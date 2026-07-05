@@ -124,6 +124,15 @@
   .estArt .sil{fill:#0a1a11;}
   .estArt .ew{fill:#ffd75e;}
 
+  /* ── Residence hero (Grow tab: your current house) ── */
+  .residence{padding:0 !important; overflow:hidden; position:relative;}
+  .residence svg{display:block; width:100%;}
+  .hsil{fill:#1a2c20;} .hsil .ew{fill:#f2d489;}
+  .residence .cap{position:absolute; left:13px; bottom:9px; text-shadow:0 1px 5px #000;}
+  .residence .cap .k{font-size:10.5px; letter-spacing:.6px; text-transform:uppercase; color:#cfd8cf; opacity:.85;}
+  .residence .cap .n{font-family:Georgia,serif; font-size:18px; color:var(--gold);}
+  .residence .pills{position:absolute; right:11px; top:10px; text-align:right;}
+
   /* ── Plots ── */
   .plots{display:grid; grid-template-columns:repeat(auto-fill,minmax(92px,1fr)); gap:8px; margin-top:10px;}
   .plot{background:linear-gradient(180deg,#0f2015 55%,#221a10); border:1px solid var(--line); border-radius:12px;
@@ -1796,60 +1805,75 @@ function litWin(ctx,x,y,w,h,night){ ctx.fillStyle=night>0.4?'#ffd75e':'#1a2c20';
 function heroEstateIdx(){
   let idx=0; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) idx=i; }); return idx;
 }
-function drawHQ(ctx,night){
-  const tier=heroEstateIdx();               // 0 shed .. 6 island
-  const gx=2.6, gy=1.2;
-  const wallL='#16261b', wallR='#0f1c14', roof='#3a2a1a', roofT='#4a3826';
+// Draw one estate building sized to a city block, back corner at (bx,by).
+function drawBuilding(ctx,tier,bx,by,night,flag){
+  const wallL='#17281c', wallR='#101d15', roof='#3a2a1a', roofT='#4a3826';
   const stoneL='#3a4048', stoneR='#2b3038', stoneT='#464d56';
-  const cx=isoPt(gx,gy)[0];
+  const w=1.5, d=1.3;
   if(tier<=0){ // allotment shed
-    isoBox(ctx,gx+0.4,gy+0.4,1.4,1.2,26,'#5a3f28','#3a2a1a','#2e2114');
-    const f=isoPt(gx+0.4,gy+1.6); litWin(ctx,f[0]+14,f[1]-18,6,7,night);
-    return;
-  }
-  if(tier<=1){ // manor
-    isoBox(ctx,gx,gy,2.4,1.8,40,wallL,wallL,wallR);
-    // pitched roof
-    const t=isoBox(ctx,gx,gy,2.4,1.8,40,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)');
-    roofPitch(ctx,t,18,roofT,roof);
-    frontWindows(ctx,gx,gy+1.8,2.4,3,night);
-  } else if(tier<=2){ // hall (wider, two wings)
-    isoBox(ctx,gx-0.3,gy,3.2,1.8,42,wallL,wallL,wallR);
-    const t=isoBox(ctx,gx-0.3,gy,3.2,1.8,42,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,20,roofT,roof);
-    frontWindows(ctx,gx-0.3,gy+1.8,3.2,4,night);
+    isoBox(ctx,bx+0.25,by+0.25,1.0,0.9,20,'#5a3f28','#3a2a1a','#2e2114');
+    const f=isoPt(bx+0.25,by+1.15); litWin(ctx,f[0]+8,f[1]-13,5,6,night);
+  } else if(tier<=2){ // manor / hall
+    isoBox(ctx,bx,by,w,d,32,wallL,wallL,wallR);
+    const t=isoBox(ctx,bx,by,w,d,32,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,13,roofT,roof);
+    frontWindows(ctx,bx,by+d,w,3,night);
   } else if(tier<=3){ // manor + tower
-    isoBox(ctx,gx,gy,2.6,1.8,42,wallL,wallL,wallR);
-    const t=isoBox(ctx,gx,gy,2.6,1.8,42,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,18,roofT,roof);
-    isoBox(ctx,gx+2.1,gy,0.9,0.9,72,stoneL,stoneL,stoneR);
-    frontWindows(ctx,gx,gy+1.8,2.6,4,night);
+    isoBox(ctx,bx,by,w,d,32,wallL,wallL,wallR);
+    const t=isoBox(ctx,bx,by,w,d,32,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,13,roofT,roof);
+    isoBox(ctx,bx+w-0.55,by,0.6,0.6,52,stoneL,stoneL,stoneR);
+    frontWindows(ctx,bx,by+d,w,3,night);
   } else if(tier<=4){ // castle
-    isoBox(ctx,gx,gy,3,2,50,stoneL,stoneL,stoneR);
-    isoBox(ctx,gx-0.2,gy-0.2,0.9,0.9,78,stoneL,stoneL,stoneR);
-    isoBox(ctx,gx+2.3,gy-0.2,0.9,0.9,78,stoneL,stoneL,stoneR);
-    battlements(ctx,gx,gy,3,2,50,stoneT);
-    frontWindows(ctx,gx,gy+2,3,4,night);
+    isoBox(ctx,bx,by,w,d,38,stoneL,stoneL,stoneR);
+    isoBox(ctx,bx-0.1,by-0.1,0.6,0.6,56,stoneL,stoneL,stoneR);
+    isoBox(ctx,bx+w-0.5,by-0.1,0.6,0.6,56,stoneL,stoneL,stoneR);
+    battlements(ctx,bx,by,w,d,38,stoneT);
+    frontWindows(ctx,bx,by+d,w,3,night);
   } else if(tier<=5){ // priory with spire
-    isoBox(ctx,gx,gy,2.8,1.8,44,stoneL,stoneL,stoneR);
-    const t=isoBox(ctx,gx,gy,2.8,1.8,44,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,22,'#2b2230','#1d1826');
-    // spire
-    const sp=isoPt(gx+1.4,gy+0.9); ctx.fillStyle=stoneL;
-    poly(ctx,[[sp[0]-10,sp[1]-52],[sp[0]+10,sp[1]-52],[sp[0]+10,sp[1]-96],[sp[0]-10,sp[1]-96]],stoneL);
-    poly(ctx,[[sp[0]-11,sp[1]-96],[sp[0]+11,sp[1]-96],[sp[0],sp[1]-124]],'#2b2230');
-    frontWindows(ctx,gx,gy+1.8,2.8,4,night);
-  } else { // island fortress
-    // rock base
-    poly(ctx,[isoPt(gx-0.6,gy-0.4),isoPt(gx+3.4,gy-0.4),isoPt(gx+3.4,gy+2.6),isoPt(gx-0.6,gy+2.6)],'#243a2a');
-    isoBox(ctx,gx,gy,3,2,54,stoneL,stoneL,stoneR);
-    isoBox(ctx,gx-0.3,gy-0.3,1,1,84,stoneL,stoneL,stoneR);
-    isoBox(ctx,gx+2.3,gy-0.3,1,1,84,stoneL,stoneL,stoneR);
-    battlements(ctx,gx,gy,3,2,54,stoneT);
-    frontWindows(ctx,gx,gy+2,3,4,night);
+    isoBox(ctx,bx,by,w,d,34,stoneL,stoneL,stoneR);
+    const t=isoBox(ctx,bx,by,w,d,34,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,15,'#2b2230','#1d1826');
+    const sp=isoPt(bx+w/2,by+d/2);
+    poly(ctx,[[sp[0]-6,sp[1]-38],[sp[0]+6,sp[1]-38],[sp[0]+6,sp[1]-66],[sp[0]-6,sp[1]-66]],stoneL);
+    poly(ctx,[[sp[0]-7,sp[1]-66],[sp[0]+7,sp[1]-66],[sp[0],sp[1]-88]],'#2b2230');
+    frontWindows(ctx,bx,by+d,w,3,night);
+  } else { // island fortress keep
+    isoBox(ctx,bx,by,w,d,42,stoneL,stoneL,stoneR);
+    isoBox(ctx,bx-0.1,by-0.1,0.7,0.7,62,stoneL,stoneL,stoneR);
+    isoBox(ctx,bx+w-0.6,by-0.1,0.7,0.7,62,stoneL,stoneL,stoneR);
+    battlements(ctx,bx,by,w,d,42,stoneT);
+    frontWindows(ctx,bx,by+d,w,3,night);
   }
-  // a little flag on top for flavour
-  const fp=isoPt(gx+0.2,gy+0.2);
-  ctx.strokeStyle='#8a7a55'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-46); ctx.lineTo(fp[0],fp[1]-70); ctx.stroke();
-  ctx.fillStyle=ownedTurf().length? '#5fbf7f':'#d9b45b';
-  ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-70); ctx.lineTo(fp[0]+14,fp[1]-66); ctx.lineTo(fp[0],fp[1]-61); ctx.fill();
+  if(flag){ const fp=isoPt(bx+0.15,by+0.15);
+    ctx.strokeStyle='#8a7a55'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-38); ctx.lineTo(fp[0],fp[1]-58); ctx.stroke();
+    ctx.fillStyle=ownedTurf().length?'#5fbf7f':'#d9b45b';
+    ctx.beginPath(); ctx.moveTo(fp[0],fp[1]-58); ctx.lineTo(fp[0]+12,fp[1]-55); ctx.lineTo(fp[0],fp[1]-51); ctx.fill(); }
+}
+// Generic city filler building; grows taller/denser with your wealth & rep.
+function drawGeneric(ctx,seed,bx,by,night){
+  const kinds = S.rep>300 ? ['flats','tower','row'] : S.rep>120 ? ['flats','row','flats'] : ['row','row','flats'];
+  const kind = kinds[seed%kinds.length];
+  const w=1.35, d=1.15;
+  const grow = Math.min(52, S.rep/12 + (S.bank+S.cash)/9000);
+  if(kind==='row'){
+    const c=['#2a2620','#26251f','#2e2a22'][seed%3];
+    isoBox(ctx,bx,by,w,d,18,'#1a1712',c,shade(c,-12));
+    const t=isoBox(ctx,bx,by,w,d,18,'rgba(0,0,0,0)','rgba(0,0,0,0)','rgba(0,0,0,0)'); roofPitch(ctx,t,9,'#3a2a1a','#2a1e12');
+    frontWindows(ctx,bx,by+d,w,2,night);
+  } else if(kind==='flats'){
+    const h=26+grow*0.7+(seed%3)*6; const c='#20262b';
+    isoBox(ctx,bx,by,w,d,h,'#161b1f',c,shade(c,-10)); winGrid(ctx,bx,by,w,d,h,night,seed);
+  } else { // tower block
+    const h=44+grow+(seed%4)*8; const c='#242a30';
+    isoBox(ctx,bx+0.25,by+0.2,0.85,0.75,h,'#161b1f',c,shade(c,-10)); winGrid(ctx,bx+0.25,by+0.2,0.85,0.75,h,night,seed);
+  }
+}
+function winGrid(ctx,bx,by,w,d,h,night,seed){
+  const a=isoPt(bx,by+d), b=isoPt(bx+w,by+d);   // front-left bottom edge
+  const rows=Math.max(2,Math.floor(h/13));
+  for(let r=0;r<rows;r++){ for(let c=0;c<3;c++){
+    const fx=a[0]+(b[0]-a[0])*(0.22+c*0.28), fy=a[1]+(b[1]-a[1])*(0.22+c*0.28)-7-r*12;
+    ctx.fillStyle=(night>0.4 && ((seed*7+r*3+c)%3!==0))?'#ffd75e':'#11181d';
+    ctx.fillRect(fx-2,fy-4,3.5,5);
+  }}
 }
 function roofPitch(ctx,box,rise,c1,c2){
   const {A,B,C,D}=box;
@@ -1865,41 +1889,31 @@ function frontWindows(ctx,gx,gyFront,gw,n,night){
   for(let i=0;i<n;i++){ const p=isoPt(gx+0.3+i*(gw-0.6)/n, gyFront); litWin(ctx,p[0]-3,p[1]-22,6,8,night); }
 }
 
-// Front-business shops line the near street
-function drawShops(ctx,night){
-  const owned=FRONTS.filter(f=>S.fronts[f.id]);
-  const slots=[[0.2,6.4],[1.6,6.4],[3.0,6.4],[4.4,6.4],[5.8,6.4],[7.2,6.4]];
-  owned.forEach((f,i)=>{ if(i>=slots.length)return; const [gx,gy]=slots[i];
-    const hue=['#3a2f22','#22333a','#3a2233','#2c3a22','#38251c','#2a2238'][i%6];
-    isoBox(ctx,gx,gy,1,0.9,20,'#151f18',hue,shade(hue,-14));
-    const p=isoPt(gx+0.5,gy+0.9); litWin(ctx,p[0]-8,p[1]-15,5,6,night); litWin(ctx,p[0]+3,p[1]-15,5,6,night);
-    // awning + emoji sign
-    ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.fillText(f.em, p[0], p[1]-20);
-  });
-  ctx.textAlign='left';
-}
 function shade(hex,d){ const n=parseInt(hex.slice(1),16); const r=Math.max(0,Math.min(255,(n>>16)+d)),g=Math.max(0,Math.min(255,((n>>8)&255)+d)),b=Math.max(0,Math.min(255,(n&255)+d)); return '#'+((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1); }
-
-function drawProps(ctx,night){
-  // trees
-  [[8.6,1.4],[8.9,3.2],[-0.2,4.6],[0.2,2.0]].forEach(([gx,gy])=>{ const p=isoPt(gx,gy);
-    ctx.fillStyle='#0c2416'; ctx.beginPath(); ctx.arc(p[0],p[1]-14,10,0,7); ctx.fill();
-    ctx.fillStyle='#153a24'; ctx.beginPath(); ctx.arc(p[0]-3,p[1]-17,7,0,7); ctx.fill();
-    ctx.fillStyle='#3a2a1a'; ctx.fillRect(p[0]-1,p[1]-6,3,7); });
-  // Jaguar in the drive
-  if(lux('motor')){ const p=isoPt(1.4,3.2); ctx.fillStyle='#5a1512';
-    roundRect(ctx,p[0]-13,p[1]-8,26,10,3); ctx.fillStyle='#7a2320'; roundRect(ctx,p[0]-8,p[1]-13,16,6,2);
-    ctx.fillStyle='#0a0d11'; ctx.beginPath(); ctx.arc(p[0]-8,p[1]+2,3,0,7); ctx.arc(p[0]+8,p[1]+2,3,0,7); ctx.fill(); }
-  // Speedboat (island/near water edge)
-  if(lux('boat')){ const p=isoPt(9.4,5.4); ctx.fillStyle='#2a3a48';
-    ctx.beginPath(); ctx.moveTo(p[0]-16,p[1]); ctx.lineTo(p[0]+16,p[1]); ctx.lineTo(p[0]+10,p[1]+7); ctx.lineTo(p[0]-10,p[1]+7); ctx.fill();
-    ctx.fillStyle='#cfd8dd'; roundRect(ctx,p[0]-4,p[1]-8,10,8,2); }
-  // streetlamps
-  [[2.0,5.0],[5.0,5.0],[7.5,5.0]].forEach(([gx,gy])=>{ const p=isoPt(gx,gy);
-    ctx.strokeStyle='#26302a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-26); ctx.stroke();
-    if(night>0.4){ const g=ctx.createRadialGradient(p[0],p[1]-27,1,p[0],p[1]-27,16); g.addColorStop(0,'rgba(255,220,120,.6)'); g.addColorStop(1,'rgba(255,220,120,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p[0],p[1]-27,16,0,7); ctx.fill(); }
-    ctx.fillStyle=night>0.4?'#ffd75e':'#3a3a2a'; ctx.beginPath(); ctx.arc(p[0],p[1]-27,3,0,7); ctx.fill(); });
+// A small front-of-shop kiosk with emoji sign
+function drawShop(ctx,f,gx,gy,i,night){
+  const hue=['#3a2f22','#22333a','#3a2233','#2c3a22','#38251c','#2a2238'][i%6];
+  isoBox(ctx,gx,gy,0.8,0.7,16,'#151f18',hue,shade(hue,-14));
+  const p=isoPt(gx+0.4,gy+0.7); litWin(ctx,p[0]-6,p[1]-12,4,5,night); litWin(ctx,p[0]+2,p[1]-12,4,5,night);
+  ctx.font='10px sans-serif'; ctx.textAlign='center'; ctx.fillText(f.em, p[0], p[1]-18); ctx.textAlign='left';
 }
+function drawTree(ctx,gx,gy){ const p=isoPt(gx,gy);
+  ctx.fillStyle='#0c2416'; ctx.beginPath(); ctx.arc(p[0],p[1]-12,8,0,7); ctx.fill();
+  ctx.fillStyle='#153a24'; ctx.beginPath(); ctx.arc(p[0]-2,p[1]-15,6,0,7); ctx.fill();
+  ctx.fillStyle='#3a2a1a'; ctx.fillRect(p[0]-1,p[1]-5,3,6); }
+function drawLamp(ctx,gx,gy,night){ const p=isoPt(gx,gy);
+  ctx.strokeStyle='#26302a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-24); ctx.stroke();
+  if(night>0.4){ const g=ctx.createRadialGradient(p[0],p[1]-25,1,p[0],p[1]-25,15); g.addColorStop(0,'rgba(255,220,120,.6)'); g.addColorStop(1,'rgba(255,220,120,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p[0],p[1]-25,15,0,7); ctx.fill(); }
+  ctx.fillStyle=night>0.4?'#ffd75e':'#3a3a2a'; ctx.beginPath(); ctx.arc(p[0],p[1]-25,3,0,7); ctx.fill(); }
+function drawCar(ctx,gx,gy){ const p=isoPt(gx,gy); ctx.fillStyle='#5a1512';
+  roundRect(ctx,p[0]-11,p[1]-7,22,9,3); ctx.fillStyle='#7a2320'; roundRect(ctx,p[0]-7,p[1]-11,14,5,2);
+  ctx.fillStyle='#0a0d11'; ctx.beginPath(); ctx.arc(p[0]-7,p[1]+2,3,0,7); ctx.arc(p[0]+7,p[1]+2,3,0,7); ctx.fill(); }
+function drawBoat(ctx,gx,gy){ const p=isoPt(gx,gy); ctx.fillStyle='#2a3a48';
+  ctx.beginPath(); ctx.moveTo(p[0]-15,p[1]); ctx.lineTo(p[0]+15,p[1]); ctx.lineTo(p[0]+9,p[1]+6); ctx.lineTo(p[0]-9,p[1]+6); ctx.fill();
+  ctx.fillStyle='#cfd8dd'; roundRect(ctx,p[0]-4,p[1]-7,9,7,2); }
+function drawTurfFlag(ctx,gx,gy,held){ const p=isoPt(gx,gy);
+  ctx.strokeStyle='#5a5240'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-22); ctx.stroke();
+  ctx.fillStyle=held?'#5fbf7f':'#7a3a38'; ctx.beginPath(); ctx.moveTo(p[0],p[1]-22); ctx.lineTo(p[0]+11,p[1]-19); ctx.lineTo(p[0],p[1]-15); ctx.fill(); }
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); ctx.fill(); }
 
 /* ── Pedestrians ─────────────────────────────────────────────────── */
@@ -1907,20 +1921,22 @@ const PED_COL={
   civ:['#8a94a0','#a0897a','#7a8a6a','#9a7a8a'], runner:['#20242c'], enforcer:['#2a2018'],
   police:['#1a2a4a'], gardener:['#2f5033']
 };
-function mkPed(type){ return { type, t:Math.random(), dir:Math.random()<0.5?1:-1,
-  lane:Math.random()<0.5?-0.28:0.28, spd:0.02+Math.random()*0.03, ph:Math.random()*6.28,
-  col:pick(PED_COL[type]||PED_COL.civ) }; }
+const ROAD_LINES=[0,3,6,9];
+function mkPed(type){ return { type, axis:Math.random()<0.5?'h':'v', line:pick(ROAD_LINES),
+  t:Math.random(), dir:Math.random()<0.5?1:-1, lane:Math.random()<0.5?-0.22:0.22,
+  spd:0.02+Math.random()*0.03, ph:Math.random()*6.28, col:pick(PED_COL[type]||PED_COL.civ) }; }
 function empBuildPeds(){
   peds=[];
-  const civ = 4 + Math.min(10, Math.floor(S.rep/120) + ownedTurf().reduce((a,d)=>a+d.str,0));
+  const civ = 8 + Math.min(20, Math.floor(S.rep/80) + ownedTurf().reduce((a,d)=>a+d.str,0)*2);
   for(let i=0;i<civ;i++) peds.push(mkPed('civ'));
-  for(let i=0;i<Math.min(6,countRole('dealer'));i++) peds.push(mkPed('runner'));
-  for(let i=0;i<Math.min(6,countRole('enforcer'));i++) peds.push(mkPed('enforcer'));
-  for(let i=0;i<Math.min(3,countRole('gardener'));i++) peds.push(mkPed('gardener'));
-  if(S.heat>=45){ const n=1+Math.floor((S.heat-45)/22); for(let i=0;i<n;i++) peds.push(mkPed('police')); }
+  for(let i=0;i<Math.min(8,countRole('dealer'));i++) peds.push(mkPed('runner'));
+  for(let i=0;i<Math.min(8,countRole('enforcer'));i++) peds.push(mkPed('enforcer'));
+  for(let i=0;i<Math.min(4,countRole('gardener'));i++) peds.push(mkPed('gardener'));
+  if(S.heat>=40){ const n=1+Math.floor((S.heat-40)/18); for(let i=0;i<n;i++) peds.push(mkPed('police')); }
 }
-// street runs along the grid line gy≈5 (gx from 0..8)
-function pedPos(p){ const gx=0.2+p.t*7.6, gy=5+p.lane; return isoPt(gx,gy); }
+// peds walk the street grid: horizontal along a road line, or vertical
+function pedPos(p){ const u=0.2+p.t*8.6;
+  return p.axis==='h' ? isoPt(u, p.line+p.lane) : isoPt(p.line+p.lane, u); }
 function updatePeds(dt){
   for(const p of peds){ p.t+=p.dir*p.spd*dt; if(p.t>1){ p.t=1; p.dir=-1; } else if(p.t<0){ p.t=0; p.dir=1; } }
 }
@@ -1947,9 +1963,10 @@ function drawPed(ctx,p,now){
 
 /* ── Gang-war effects ────────────────────────────────────────────── */
 function pushWar(where){
-  // where: 'hq' | 'street' | 'turf'
-  let gx=4, gy=5;
-  if(where==='hq'){ gx=3.5; gy=2; } else if(where==='turf'){ gx=6.5; gy=5; } else { gx=1.5+Math.random()*5; gy=5; }
+  // where: 'hq' | 'street' | 'turf' — positioned on the city grid (roads at 0,3,6,9)
+  let gx=6, gy=6;
+  if(where==='hq'){ gx=4.5; gy=4.5; } else if(where==='turf'){ gx=pick([3,6]); gy=pick([3,6]); }
+  else { gx=pick(ROAD_LINES); gy=0.5+Math.random()*8; }
   const [x,y]=isoPt(gx,gy);
   warFx.push({x,y,life:0,max:2.6, fighters:[]});
   warUnseen=true;
@@ -1978,46 +1995,70 @@ function drawWar(ctx,fx,dt,now){
 }
 
 /* ── Scene assembly ──────────────────────────────────────────────── */
+// blocks ordered centre-out so your grandest estates sit in the middle
+const CITY_BLOCKS=[[1,1],[1,0],[0,1],[2,1],[1,2],[0,0],[2,0],[0,2],[2,2]];
+function roadStrip(ctx,vertical,line,col){
+  const a=vertical?isoPt(line-0.45,-0.5):isoPt(-0.5,line-0.45);
+  const b=vertical?isoPt(line-0.45,9.5):isoPt(9.5,line-0.45);
+  const c=vertical?isoPt(line+0.45,9.5):isoPt(9.5,line+0.45);
+  const d=vertical?isoPt(line+0.45,-0.5):isoPt(-0.5,line+0.45);
+  poly(ctx,[a,b,c,d],col);
+}
 function empDraw(ctx,now){
   const night=nightFactor(S.min/60);
-  // sky/background
+  // sky
   const sky=ctx.createLinearGradient(0,0,0,EMP_H);
   sky.addColorStop(0, mixNight('#3f6ea5','#0a1226',night));
   sky.addColorStop(0.5, mixNight('#7fa8cf','#101a30',night));
   sky.addColorStop(1, mixNight('#2c3a2a','#0a130d',night));
   ctx.fillStyle=sky; ctx.fillRect(0,0,EMP_W,EMP_H);
-  // stars at night
   if(night>0.4){ ctx.fillStyle=`rgba(240,236,214,${(night-0.4)*1.2})`;
-    for(let i=0;i<26;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%110; ctx.fillRect(sx,sy,1.5,1.5); } }
-  // ground platform (grass)
-  const g0=isoPt(-1,-1), g1=isoPt(9,-1), g2=isoPt(9,7), g3=isoPt(-1,7);
-  poly(ctx,[g0,g1,g2,g3], mixNight('#1c3a24','#0d1c13',night));
-  // subtle tile grid
-  ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
-  for(let i=-1;i<=9;i++){ const a=isoPt(i,-1),b=isoPt(i,7); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
-  for(let j=-1;j<=7;j++){ const a=isoPt(-1,j),b=isoPt(9,j); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
-  // road along gy 4.6..5.4
-  const r0=isoPt(-1,4.6), r1=isoPt(9,4.6), r2=isoPt(9,5.4), r3=isoPt(-1,5.4);
-  poly(ctx,[r0,r1,r2,r3], mixNight('#2a2b2e','#14161a',night));
-  // road dashes
-  ctx.strokeStyle=`rgba(217,180,91,${night>0.4?0.5:0.7})`; ctx.lineWidth=1.5; ctx.setLineDash([8,8]);
-  let ca=isoPt(-1,5), cb=isoPt(9,5); ctx.beginPath(); ctx.moveTo(ca[0],ca[1]); ctx.lineTo(cb[0],cb[1]); ctx.stroke(); ctx.setLineDash([]);
+    for(let i=0;i<30;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%100; ctx.fillRect(sx,sy,1.5,1.5); } }
+  // ground
+  poly(ctx,[isoPt(-0.5,-0.5),isoPt(9.5,-0.5),isoPt(9.5,9.5),isoPt(-0.5,9.5)], mixNight('#1c3a24','#0d1c13',night));
+  // roads (grid of avenues)
+  const rc=mixNight('#2a2b2e','#14161a',night);
+  ROAD_LINES.forEach(L=>{ roadStrip(ctx,false,L,rc); roadStrip(ctx,true,L,rc); });
+  // centre dashes on the two main avenues
+  ctx.strokeStyle=`rgba(217,180,91,${night>0.4?0.4:0.6})`; ctx.lineWidth=1.4; ctx.setLineDash([7,9]);
+  [3,6].forEach(L=>{ let a=isoPt(-0.5,L),b=isoPt(9.5,L); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke();
+    a=isoPt(L,-0.5); b=isoPt(L,9.5); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); });
+  ctx.setLineDash([]);
 
-  // depth-sorted drawables: HQ, shops, props drawn back-to-front, peds interleaved by baseline
-  drawHQ(ctx,night);
-  drawShops(ctx,night);
-  drawProps(ctx,night);
-  // peds sorted by screen-y so nearer ones overlap
-  const sorted=peds.slice().sort((a,b)=>pedPos(a)[1]-pedPos(b)[1]);
-  for(const p of sorted) drawPed(ctx,p,now);
-  // war effects on top
+  // collect every drawable with a depth (front-base screen-y), then paint back→front
+  const items=[];
+  const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
+  // estates (grandest centre) + generic filler = a whole city
+  const owned=[]; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) owned.push(i); }); owned.sort((a,b)=>b-a);
+  CITY_BLOCKS.forEach((blk,bi)=>{ const bx=blk[0]*3+1.15, by=blk[1]*3+1.15;
+    if(bi<owned.length){ const tier=owned[bi], isHome=(bi===0);
+      push(bx+1.5,by+1.3, ()=>drawBuilding(ctx,tier,bx,by,night,isHome)); }
+    else { const seed=blk[0]*7+blk[1]*3+3; push(bx+1.4,by+1.2, ()=>drawGeneric(ctx,seed,bx,by,night)); }
+  });
+  // front-business shops as a market row on the front avenue
+  FRONTS.filter(f=>S.fronts[f.id]).forEach((f,i)=>{ const gx=0.6+i*1.25, gy=8.9;
+    push(gx+0.8,gy+0.7, ()=>drawShop(ctx,f,gx,gy,i,night)); });
+  // props
+  [[0.2,3],[3,0.2],[6,0.2],[9.2,6]].forEach(([gx,gy],i)=> push(gx,gy,()=>drawTree(ctx,gx,gy)));
+  [[3,3],[6,3],[3,6],[6,6]].forEach(([gx,gy])=> push(gx,gy,()=>drawLamp(ctx,gx,gy,night)));
+  if(lux('motor')) push(3,4.5,()=>drawCar(ctx,3,4.5));
+  if(lux('boat'))  push(9.3,9.3,()=>drawBoat(ctx,9.3,9.3));
+  // turf banners at inner intersections — green for each district you hold
+  [[3,3],[6,3],[3,6],[6,6],[9,9]].forEach(([gx,gy],i)=> push(gx+0.05,gy+0.05,()=>drawTurfFlag(ctx,gx,gy,i<ownedTurf().length)));
+  // pedestrians
+  for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
+  // paint
+  items.sort((a,b)=>a.y-b.y);
+  for(const it of items) it.fn();
+
+  // war effects above everything
   warFx = warFx.filter(fx=>drawWar(ctx,fx,empDT,now));
-
   // night vignette
-  if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${(night)*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
+  if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${night*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
   // caption
+  const nEst=owned.length;
   ctx.fillStyle='rgba(240,236,214,.75)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
-  ctx.fillText(`${ESTATES[heroEstateIdx()].name} · ${phaseStr()}`, 12, EMP_H-12);
+  ctx.fillText(`Your City · ${nEst} estate${nEst!==1?'s':''} · ${phaseStr()}`, 12, EMP_H-12);
   ctx.textAlign='right'; ctx.fillText(`${ownedTurf().length}/${DISTRICTS.length} districts · ${peds.length} on the streets`, EMP_W-12, EMP_H-12);
   ctx.textAlign='left';
 }
@@ -2030,7 +2071,7 @@ function empireStart(){
   const hadWar=warUnseen;
   empBuildPeds(); warUnseen=false; renderHUD();
   // if a war broke out while you weren't looking, replay a clash as you arrive
-  if(hadWar){ const [x,y]=isoPt(6.5,5); warFx.push({x,y,life:0,max:3.4}); }
+  if(hadWar){ const [x,y]=isoPt(6,6); warFx.push({x,y,life:0,max:3.4}); }
   let last=performance.now();
   empireStop();
   (function loop(now){
@@ -2097,8 +2138,25 @@ function estateArtHTML(e, locked){
   return `<div class="estArt${locked?' locked':''}"><svg viewBox="0 0 200 60" preserveAspectRatio="xMidYMax meet"><g class="sil">${e.art}</g></svg></div>`;
 }
 
+// A portrait of your current house (your grandest residence) for the Grow tab
+function residenceHero(){
+  const e=ESTATES[heroEstateIdx()];
+  let plots=0, growing=0;
+  for(const id in S.estates){ const est=S.estates[id]; if(!est.owned) continue;
+    plots+=est.plots.length; growing+=est.plots.filter(p=>p.strain).length; }
+  return `<div class="card residence">
+    <svg viewBox="0 0 200 96" preserveAspectRatio="xMidYMax meet"
+      style="background:linear-gradient(180deg,#33507a 0%,#7c6a52 74%,#20402a 74%,#16301f 100%);">
+      <g class="hsil" transform="translate(0,34) scale(1.05)">${e.art}</g>
+      <ellipse cx="164" cy="20" rx="9" ry="9" fill="#ffe9a8" opacity="0.85"/>
+      <rect x="0" y="90" width="200" height="6" fill="#0f2416"/>
+    </svg>
+    <div class="cap"><div class="k">Your residence</div><div class="n">${e.name}</div></div>
+    <div class="pills"><span class="pill">🌱 ${growing}/${plots} plots growing</span></div>
+  </div>`;
+}
 function rGrow(){
-  let h='';
+  let h=residenceHero();
   for(const e of ESTATES){
     const owned=S.estates[e.id]?.owned;
     if(owned){
@@ -2330,11 +2388,12 @@ function rEmpire(){
   return `<div id="empwrap">
     <canvas id="hqCanvas" width="720" height="430" aria-label="Your base of operations"></canvas>
   </div>
-  <div class="card"><h3>🏰 Base of Operations</h3>
-    <div class="sub">A bird's-eye view of your manor and the streets around it. It grows as your empire does —
-    your HQ upgrades with your grandest estate, front businesses become shops, luxuries appear in the grounds,
-    and your crew and the public walk the streets. When a war kicks off — a takeover, a raid, or a hit —
-    you'll see it happen here.</div></div>`;
+  <div class="card"><h3>🏙️ Your City</h3>
+    <div class="sub">A bird's-eye view of the city you're building. Every estate you hold becomes a building on the
+    blocks — grandest at the centre — with tower blocks and terraces filling in around them as you grow.
+    Front businesses line the market row, luxuries appear in the streets, turf you hold flies a green flag,
+    and your crew and the public walk the avenues. When a war kicks off — a takeover, a raid, or a hit —
+    you'll see it happen here. (Your own house is on the Grow tab.)</div></div>`;
 }
 
 function rLedger(){
