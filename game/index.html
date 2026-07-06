@@ -50,20 +50,25 @@
   #hud h1{font-size:19px; margin:0; color:var(--gold); letter-spacing:.5px; white-space:nowrap;
     text-shadow:0 0 18px rgba(217,180,91,.35);}
   #clock{margin-left:auto; font-variant-numeric:tabular-nums; color:var(--ink-dim); font-size:13.5px; white-space:nowrap;}
-  #hud .row2{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; align-items:center;}
-  .stat{background:linear-gradient(180deg,#132a1c,#0e1c14); border:1px solid var(--line); border-radius:10px;
-    padding:5px 10px; font-size:13px; display:flex; gap:6px; align-items:center; white-space:nowrap;
-    box-shadow:0 1px 0 #ffffff0d inset;}
-  .stat b{font-variant-numeric:tabular-nums;}
-  .stat .lbl{color:var(--ink-dim); font-size:11px; text-transform:uppercase; letter-spacing:.6px;}
-  #heatwrap{flex:1; min-width:110px;}
+  #hud .row2{display:flex; gap:7px; margin-top:8px; flex-wrap:wrap; align-items:center;}
+  .stat{background:linear-gradient(180deg,#16301f,#0c1a12); border:1px solid var(--line); border-radius:11px;
+    padding:5px 11px 5px 9px; font-size:13px; display:flex; gap:5px; align-items:center; white-space:nowrap;
+    box-shadow:0 2px 5px rgba(0,0,0,.28), 0 1px 0 #ffffff10 inset;}
+  .stat .si{font-size:13px; filter:saturate(1.1);}
+  .stat b{font-variant-numeric:tabular-nums; font-weight:700;}
+  .stat .lbl{color:var(--ink-dim); font-size:10.5px; text-transform:uppercase; letter-spacing:.6px;}
+  #heatwrap{flex:1; min-width:120px;}
   #heatwrap.hot{border-color:#a34; animation:hotpulse 1.1s infinite;}
   @keyframes hotpulse{0%,100%{box-shadow:0 0 0 rgba(226,99,95,0);}50%{box-shadow:0 0 16px rgba(226,99,95,.55);}}
   #heatbar{height:8px; border-radius:6px; background:#20140f; overflow:hidden; margin-top:3px;}
   #heatfill{height:100%; width:0%; background:linear-gradient(90deg,#c98a3a,#e2635f); transition:width .4s;}
-  #speed{display:flex; gap:4px;}
-  #speed button{padding:5px 10px; font-size:12px; border:1px solid var(--line); background:var(--panel2); color:var(--ink-dim);}
-  #speed button.on{color:#1d1405; background:var(--gold); font-weight:700;}
+  #speed{display:flex; gap:4px; align-items:center;}
+  #speed button{padding:5px 9px; font-size:12px; border:1px solid var(--line); background:var(--panel2);
+    color:var(--ink-dim); border-radius:9px; transition:background .15s, color .15s;}
+  #speed button.on{color:#1d1405; background:linear-gradient(180deg,var(--gold-hi),var(--gold)); font-weight:700;
+    box-shadow:0 0 10px rgba(217,180,91,.4);}
+  #speed .dawnbtn{background:linear-gradient(180deg,#26304a,#161d30); color:#cdd6ea; border-color:#2c3a54;}
+  #speed .dawnbtn:hover{border-color:#4a5c82;}
 
   /* ── Scenery ── */
   #scenewrap{border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; margin:2px 0 4px;
@@ -90,10 +95,13 @@
     background:linear-gradient(180deg,#0c1710,#081009); border-top:1px solid var(--line);
     padding-bottom:env(safe-area-inset-bottom); box-shadow:0 -6px 20px rgba(0,0,0,.5);}
   #tabs button{flex:1; background:none; border-radius:0; padding:9px 2px 8px; color:var(--ink-dim);
-    font-size:11px; display:flex; flex-direction:column; align-items:center; gap:2px;}
-  #tabs button .ico{font-size:19px; line-height:1; filter:grayscale(.7) brightness(.8); transition:filter .2s;}
+    font-size:11px; display:flex; flex-direction:column; align-items:center; gap:2px; position:relative; transition:color .2s;}
+  #tabs button .ico{font-size:19px; line-height:1; filter:grayscale(.7) brightness(.8); transition:filter .2s, transform .2s;}
   #tabs button.on{color:var(--gold);}
-  #tabs button.on .ico{filter:none; text-shadow:0 0 14px rgba(217,180,91,.6);}
+  #tabs button.on .ico{filter:none; transform:translateY(-1px) scale(1.08); text-shadow:0 0 14px rgba(217,180,91,.6);}
+  #tabs button.on::before{content:''; position:absolute; top:0; left:50%; transform:translateX(-50%);
+    width:26px; height:3px; border-radius:0 0 4px 4px; background:linear-gradient(90deg,var(--gold-hi),var(--gold));
+    box-shadow:0 0 8px rgba(217,180,91,.6);}
   #tabs button .bdg{position:absolute; transform:translate(14px,-4px); background:var(--red); color:#fff;
     border-radius:9px; font-size:10px; min-width:16px; padding:1px 4px; font-weight:700;}
   @media(min-width:700px){
@@ -252,18 +260,18 @@
       <span id="clock"></span>
     </div>
     <div class="row2">
-      <span class="stat" title="Dirty cash — street money"><span class="lbl">Cash</span> <b class="dirty" id="hCash"></b></span>
-      <span class="stat" title="Clean money — laundered, spendable on estates"><span class="lbl">Bank</span> <b class="money" id="hBank"></b></span>
-      <span class="stat"><span class="lbl">Rep</span> <b id="hRep"></b></span>
-      <span class="stat" id="heatwrap"><span class="lbl">Heat</span> <b id="hHeat"></b>
+      <span class="stat" title="Dirty cash — street money"><span class="si">💵</span><span class="lbl">Cash</span> <b class="dirty" id="hCash"></b></span>
+      <span class="stat" title="Clean money — laundered, spendable on estates"><span class="si">🏦</span><span class="lbl">Bank</span> <b class="money" id="hBank"></b></span>
+      <span class="stat" title="Reputation — unlocks estates, strains and events"><span class="si">⭐</span><span class="lbl">Rep</span> <b id="hRep"></b></span>
+      <span class="stat" id="heatwrap" title="Police heat — above 70 risks raids, 100 triggers a crackdown"><span class="si">🔥</span><span class="lbl">Heat</span> <b id="hHeat"></b>
         <span style="flex:1"><span id="heatbar"><i id="heatfill" style="display:block"></i></span></span>
       </span>
       <span id="speed">
-        <button id="sp0" onclick="A.speed(0)">⏸</button>
-        <button id="sp1" onclick="A.speed(1)">1×</button>
-        <button id="sp2" onclick="A.speed(2)">2×</button>
-        <button id="sp3" onclick="A.speed(3)">4×</button>
-        <button onclick="A.sleep()" title="Lie low until 6:00 dawn">🌙 Dawn</button>
+        <button id="sp0" onclick="A.speed(0)" title="Pause">⏸</button>
+        <button id="sp1" onclick="A.speed(1)" title="Normal speed">1×</button>
+        <button id="sp2" onclick="A.speed(2)" title="Double speed">2×</button>
+        <button id="sp3" onclick="A.speed(3)" title="Quadruple speed">4×</button>
+        <button class="dawnbtn" onclick="A.sleep()" title="Lie low until 6:00 dawn — cools your heat">🌙 Dawn</button>
       </span>
     </div>
   </div>
@@ -848,9 +856,10 @@ function minuteDealers(){
 function rollMarket(){
   for(const st of STRAINS) S.market[st.id]=+rnd(0.8,1.3).toFixed(2);
 }
-function settle(){
+function settle(lielow){
   S.day++; S.stats.daysPlayed++;
   let notes=[];
+  const heatBefore=S.heat;
   // wages (cash)
   const wages=S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0);
   if(wages>0){
@@ -878,9 +887,11 @@ function settle(){
     S.cash-=amt; S.bank+=cleaned; S.stats.laundered+=cleaned;
     notes.push(`Fronts laundered ${fmt(amt)} → ${fmt(cleaned)} clean.`);
   }
-  // turf income & rival pressure
+  // turf income & rival pressure — skipped when lying low (corners shut for the night)
   const held=ownedTurf();
-  if(held.length){
+  if(held.length && lielow){
+    notes.push(`You kept the corners quiet overnight — no takings, no attention.`);
+  } else if(held.length){
     const inc=held.reduce((a,d)=>a+d.income,0);
     earnCash(inc);
     const turfHeat=held.reduce((a,d)=>a+d.str,0);   // heat scales with district strength
@@ -919,10 +930,12 @@ function settle(){
     if(r<0.2){ const w=ri(1000,4000); S.bank+=w; S.stats.earned+=w; notes.push(`Liquid Asset romped home at Ascot: +${fmt(w)} (bank).`); }
     else if(r<0.25){ S.cash=Math.max(0,S.cash-800); notes.push('Vet bill for Liquid Asset: £800. He regrets nothing.'); }
   }
-  // heat decay (fixers, penthouse, civilian partner, community trust)
+  // heat decay (fixers, penthouse, civilian partner, community trust) + lying-low bonus
   let cool=4 + countRole('fixer')*10 + (lux('pent')?3:0) + (partnered('flora')?2:0) + Math.floor(S.trust/25);
+  if(lielow) cool += 16;   // a quiet night off the streets cools things down
   if(S.heat>0){ const before=S.heat; S.heat=clamp(S.heat-cool,0,100);
     notes.push(`Heat cooled ${before}→${S.heat}.`); }
+  S._lastHeatDelta = Math.round(S.heat - heatBefore);
   // contracts: expire + maybe generate
   S.contracts=S.contracts.filter(c=>{
     if(S.day>c.deadline){ addRep(-5); log(`Contract for ${strain(c.strain).name} expired. Your word suffers. (-5 rep)`,true); return false; }
@@ -1646,13 +1659,13 @@ const A = {
     while(guard-->0){
       S.min+=10; S.absMin+=10;
       if(S.min>=1440) S.min-=1440;
-      for(let i=0;i<10;i++) minutePlants();
-      minuteDealers();
-      if(S.min>=360 && S.min<370){ S.min=360; settle(); break; }
+      for(let i=0;i<10;i++) minutePlants();   // plants still grow; you just stay off the streets
+      if(S.min>=360 && S.min<370){ S.min=360; settle(true); break; }
     }
     S.minF=S.min;
     S.offers=[];
-    toast('🌙 You lie low until dawn.');
+    const d=S._lastHeatDelta||0;
+    toast(`🌙 You lay low until dawn.` + (d<0?` <b>Heat ${d}</b>.` : d>0?` Heat +${d}.` : ''));
     render(); save();
   },
 
@@ -1968,11 +1981,12 @@ function empBuildPeds(mode){
     return;
   }
   if(mode==='house'){
-    // the Crew scene: one figure per staff member, milling around the house
+    // the Crew scene: one figure per staff member, milling the central courtyard
+    const central=pd=>{ pd.path='ring'; pd.cx=3.9; pd.cy=3.9; pd.r=1.0+Math.random()*1.2; pd.asp=0.2+Math.random()*0.25; return pd; };
     for(const s of S.staff){ const t=({dealer:'runner',enforcer:'enforcer',gardener:'gardener',
       fixer:'civ',botanist:'gardener',guard:'enforcer',barrister:'civ'})[s.role]||'civ';
-      const pd=mkPed(t); pd.path='ring'; pd.name=s.name; peds.push(pd); }
-    for(let i=0;i<3;i++){ const pd=mkPed('civ'); pd.path='ring'; peds.push(pd); }  // a little life
+      const pd=central(mkPed(t)); pd.name=s.name; peds.push(pd); }
+    for(let i=0;i<2;i++) peds.push(central(mkPed('civ')));  // a little life
     return;
   }
   // the Street scene: a whole city population
@@ -2160,36 +2174,38 @@ function empDrawGarden(ctx,now){
   ctx.textAlign='right'; ctx.fillText(`${growing}/${total} plots growing`, EMP_W-12, EMP_H-12);
   ctx.textAlign='left';
 }
-// ── CREW scene: your residence on its grounds, staff milling about ──
+// ── CREW scene: ALL your estates on their grounds, staff milling about ──
+// perimeter plots leave a central courtyard open for the crew to walk
+const ESTATE_SLOTS=[[3.4,0.7],[0.7,0.7],[6.1,0.7],[0.7,3.4],[6.1,3.4],[0.7,6.1],[3.4,6.1],[6.1,6.1]];
 function empDrawHouse(ctx,now){
   const night=nightFactor(S.min/60);
   drawSky(ctx,night);
-  // lawn platform
-  poly(ctx,[isoPt(0.5,0.5),isoPt(8.5,0.5),isoPt(8.5,8.5),isoPt(0.5,8.5)], mixNight('#1f4228','#0e2015',night));
-  // a circular drive around the house
-  ctx.strokeStyle=mixNight('#2a2b2e','#14161a',night); ctx.lineWidth=10;
-  ctx.beginPath();
-  for(let a=0;a<=6.3;a+=0.2){ const p=isoPt(HOUSE_CX+Math.cos(a)*2.9, HOUSE_CY+Math.sin(a)*2.9*1.1); if(a===0)ctx.moveTo(p[0],p[1]); else ctx.lineTo(p[0],p[1]); }
-  ctx.closePath(); ctx.stroke();
+  // lawn
+  poly(ctx,[isoPt(0.2,0.2),isoPt(8.8,0.2),isoPt(8.8,8.8),isoPt(0.2,8.8)], mixNight('#1f4228','#0e2015',night));
+  // gravel paths between the plots
+  const pc=mixNight('#2c2d30','#15171b',night);
+  ctx.strokeStyle=pc; ctx.lineWidth=8; ctx.lineCap='round';
+  [2.4,4.5,6.6].forEach(L=>{ let a=isoPt(0.4,L),b=isoPt(8.6,L); ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
+    a=isoPt(L,0.4);b=isoPt(L,8.6); ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke(); });
   const items=[];
   const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
-  // the residence (grandest estate), flag flying — scaled up for presence
-  const tier=heroEstateIdx(); const bx=HOUSE_CX-0.75, by=HOUSE_CY-0.65;
-  const base=isoPt(HOUSE_CX,HOUSE_CY);
-  push(bx+1.5,by+1.3, ()=>{ ctx.save(); ctx.translate(base[0],base[1]); ctx.scale(1.5,1.5); ctx.translate(-base[0],-base[1]);
-    drawBuilding(ctx,tier,bx,by,night,true); ctx.restore(); });
-  // grounds dressing
-  [[1.4,1.4],[7.2,1.4],[1.4,7.2],[7.2,7.2]].forEach(([gx,gy])=> push(gx,gy,()=>drawTree(ctx,gx,gy)));
-  [[HOUSE_CX,1.2],[HOUSE_CX,7.2],[1.4,HOUSE_CY],[7.2,HOUSE_CY]].forEach(([gx,gy])=> push(gx,gy,()=>drawLamp(ctx,gx,gy,night)));
-  if(lux('motor')) push(HOUSE_CX+0.2,HOUSE_CY+2.6,()=>drawCar(ctx,HOUSE_CX+0.2,HOUSE_CY+2.6));
-  // crew figures orbit the house
+  // every owned estate, placed on the grounds; the grandest flies the flag
+  const owned=[]; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) owned.push(i); });
+  const hero=heroEstateIdx();
+  owned.forEach((tier,i)=>{ const slot=ESTATE_SLOTS[i]||ESTATE_SLOTS[i%8]; const bx=slot[0], by=slot[1];
+    push(bx+1.4,by+1.2, ()=>drawBuilding(ctx,tier,bx,by,night,tier===hero)); });
+  // dressing: lamps in the courtyard, trees at the corners, your car
+  [[3.9,3.9],[2.4,4.5],[6.6,4.5],[4.5,2.4],[4.5,6.6]].forEach(([gx,gy])=> push(gx,gy,()=>drawLamp(ctx,gx,gy,night)));
+  [[8.4,3.9],[0.5,4.6]].forEach(([gx,gy])=> push(gx,gy,()=>drawTree(ctx,gx,gy)));
+  if(lux('motor')) push(3.9,4.9,()=>drawCar(ctx,3.9,4.9));
+  // crew figures mill about the central courtyard
   for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
   items.sort((a,b)=>a.y-b.y); for(const it of items) it.fn();
   if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${night*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
-  const nCrew=S.staff.length;
   postFX(ctx);
+  const nCrew=S.staff.length, nEst=owned.length;
   ctx.fillStyle='rgba(240,236,214,.78)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
-  ctx.fillText(`${ESTATES[tier].name} · your residence`, 12, EMP_H-12);
+  ctx.fillText(`Your estates · ${nEst}`, 12, EMP_H-12);
   ctx.textAlign='right'; ctx.fillText(`${nCrew} on the payroll · ${phaseStr()}`, EMP_W-12, EMP_H-12);
   ctx.textAlign='left';
 }
