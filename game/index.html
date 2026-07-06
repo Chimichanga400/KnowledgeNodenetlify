@@ -110,6 +110,17 @@
     #tabs button{font-size:13px; flex-direction:row; gap:7px; padding:11px;}
   }
 
+  /* ── Segmented sub-tabs (in-tab navigation) ── */
+  .seg{display:flex; gap:3px; background:var(--panel2); border:1px solid var(--line);
+    border-radius:12px; padding:4px; margin:10px 0 4px; overflow-x:auto; -webkit-overflow-scrolling:touch;}
+  .seg::-webkit-scrollbar{display:none;}
+  .seg button{flex:1 0 auto; white-space:nowrap; padding:8px 12px; border-radius:9px; background:none;
+    color:var(--ink-dim); font-size:13px; font-weight:600; transition:background .15s, color .15s;}
+  .seg button.on{background:linear-gradient(180deg,#20402a,#16301f); color:var(--gold);
+    box-shadow:0 1px 3px rgba(0,0,0,.35), 0 1px 0 #ffffff10 inset;}
+  .seg button .cnt{font-size:11px; opacity:.7; margin-left:2px;}
+  .subhint{color:var(--ink-dim); font-size:12.5px; margin:2px 2px 8px; padding:0 2px;}
+
   /* ── Cards ── */
   .card{background:linear-gradient(180deg,#132619,#101f15); border:1px solid var(--line); border-radius:var(--radius);
     padding:13px 14px; margin:10px 0; box-shadow:0 3px 14px rgba(0,0,0,.3), 0 1px 0 #ffffff0a inset;}
@@ -1318,6 +1329,7 @@ function fireEvent(){
 /* ── Actions ─────────────────────────────────────────────────────── */
 const A = {
   tab(t){ S.tab=t; render(); },
+  sub(tab,key){ SUB[tab]=key; render(); },
   speed(n){ S.speed=n; renderHUD(); },
   close(){ closeModal(); },
 
@@ -2324,6 +2336,14 @@ function renderHUD(){
 }
 
 const SCENE_TABS={grow:'garden', street:'city', crew:'house'};
+// in-tab sub navigation (segmented control) — remembers the last section per tab
+let SUB={ street:'deals', crew:'hire', biz:'fronts', life:'love', ledger:'stats' };
+function segbar(tab, items){   // items: [key, label, count?]
+  return `<div class="seg">`+items.map(it=>{
+    const [k,l,c]=it; const on=SUB[tab]===k;
+    return `<button class="${on?'on':''}" onclick="A.sub('${tab}','${k}')">${l}${c!=null?`<span class="cnt">${c}</span>`:''}</button>`;
+  }).join('')+`</div>`;
+}
 let lastTab=null, lastHTML='', animT=null;
 function manageScene(){
   const titleUp = $('title') && $('title').style.display!=='none';
@@ -2409,7 +2429,11 @@ function plotCell(eid,p,i){
 }
 
 function rStreet(){
-  let h='<div class="card"><h3>📦 Inventory & Market</h3><div class="sub">Prices shift every dawn. Sell into a hot market.</div>';
+  const nOff=S.offers.length+S.contracts.length, nTurf=ownedTurf().length;
+  let h=segbar('street',[['deals','🤝 Deals',nOff||null],['turf','🗺️ Turf',`${nTurf}/${DISTRICTS.length}`]]);
+  if(SUB.street==='turf'){ return h+turfSection(); }
+  // ── Deals ──
+  h+='<div class="card"><h3>📦 Inventory & Market</h3><div class="sub">Prices shift every dawn. Sell into a hot market.</div>';
   const keys=Object.keys(S.inv).filter(k=>S.inv[k]>0);
   h+= keys.length ? keys.map(k=>{const st=strain(k); const m=mkt(k);
       const arrow=m>=1.12?'<span class="up">▲ hot</span>':m<=0.88?'<span class="down">▼ cold</span>':'<span class="muted">◆ steady</span>';
@@ -2452,9 +2476,11 @@ function rStreet(){
   }
   const d=countRole('dealer');
   h+=`<div class="card"><h3>🕶️ Runners</h3><div class="sub">${d?`${d} runner${d>1?'s':''} moving product automatically at ${up('cellar')?90:80}% value (10:00–22:00).`:'No runners. Hire some in Crew to sell while you sleep.'}</div></div>`;
-
+  return h;
+}
+function turfSection(){
   const enf=countRole('enforcer');
-  h+=`<div class="card"><h3>🗺️ Turf</h3><div class="sub">Five districts, five crews. Take corners with <b>Enforcers</b> (hire in Crew) — held turf pays street cash every dawn, but rivals will try to take it back and every corner adds heat scaled to its size. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div></div>`;
+  let h=`<div class="subhint">Take corners with <b>Enforcers</b> (hire in Crew). Held turf pays street cash every dawn, but rivals try to take it back and every corner adds heat. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div>`;
   for(const dd of DISTRICTS){
     const own=S.turf[dd.id];
     const weak=!!S.hits[dd.id];
@@ -2477,77 +2503,74 @@ function rStreet(){
 }
 
 function rCrew(){
-  let h='<div class="card"><h3>🎩 The Firm</h3><div class="sub">Wages come out of street cash every dawn. Miss payroll and someone walks.</div></div>';
-  for(const role in ROLES){
-    const r=ROLES[role];
-    const n=countRole(role);
-    h+=`<div class="card"><div class="rowline">
-      <h3>${r.em} ${r.name}${n?` <span class="pill">×${n}</span>`:''}</h3><span class="spacer"></span>
-      <button class="gold hirebtn" onclick="A.hire('${role}')" ${S.cash<r.hire||n>=r.max?'disabled':''}>Hire ${fmt(r.hire)}</button></div>
-      <div class="sub">${r.blurb} · Wage ${fmt(r.wage)}/day</div></div>`;
-  }
-  if(S.staff.length){
-    h+='<div class="card"><h3>Payroll</h3>'+S.staff.map((s,i)=>{
-      const r=ROLES[s.role];
-      return `<div class="invrow">${r.em} <b>${s.name}</b> <span class="muted">${r.name}${s.estate?` @ ${ESTATES.find(e=>e.id===s.estate).name}`:''}</span>
-        <span class="spacer"></span>
-        ${s.role==='gardener'?`<button class="ghost" onclick="A.moveGardener(${i})">↪ Move</button>`:''}
-        <button class="danger" onclick="A.fire(${i})">Sack</button></div>`;
-    }).join('')+`<div class="sub" style="margin-top:8px">Total wages: ${fmt(S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0))}/day</div></div>`;
+  let h=segbar('crew',[['hire','🎩 Hire'],['payroll','📋 Payroll',S.staff.length]]);
+  if(SUB.crew==='hire'){
+    h+='<div class="subhint">Wages come out of street cash every dawn. Miss payroll and someone walks.</div>';
+    for(const role in ROLES){ const r=ROLES[role], n=countRole(role);
+      h+=`<div class="card"><div class="rowline">
+        <h3>${r.em} ${r.name}${n?` <span class="pill">×${n}</span>`:''}</h3><span class="spacer"></span>
+        <button class="gold hirebtn" onclick="A.hire('${role}')" ${S.cash<r.hire||n>=r.max?'disabled':''}>Hire ${fmt(r.hire)}</button></div>
+        <div class="sub">${r.blurb} · Wage ${fmt(r.wage)}/day</div></div>`; }
+  } else {
+    if(!S.staff.length){ h+='<div class="card"><div class="sub" style="text-align:center">Nobody on the books yet. Hire your first crew.</div></div>'; }
+    else h+='<div class="card"><h3>Payroll</h3>'+S.staff.map((s,i)=>{ const r=ROLES[s.role];
+        return `<div class="invrow">${r.em} <b>${s.name}</b> <span class="muted">${r.name}${s.estate?` @ ${ESTATES.find(e=>e.id===s.estate).name}`:''}</span>
+          <span class="spacer"></span>
+          ${s.role==='gardener'?`<button class="ghost" onclick="A.moveGardener(${i})">↪ Move</button>`:''}
+          <button class="danger" onclick="A.fire(${i})">Sack</button></div>`;
+      }).join('')+`<div class="sub" style="margin-top:8px">Total wages: ${fmt(S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0))}/day</div></div>`;
   }
   return h;
 }
 
 function rBiz(){
-  const cap=FRONTS.reduce((a,f)=>a+(S.fronts[f.id]?f.launder:0),0);
-  let h=`<div class="card"><h3>🧺 The Wash</h3>
-    <div class="sub">Street <b class="dirty">cash</b> buys seeds, staff and bribes — but lords and lawyers only accept <b class="money">bank</b> money.
-    Fronts launder cash into bank every dawn (10% fee). Current capacity: <b>${fmt(cap)}/day</b>.</div></div>`;
-  for(const f of FRONTS){
-    const owned=S.fronts[f.id];
-    h+=`<div class="card"><div class="rowline"><h3>${f.em} ${f.name}</h3><span class="spacer"></span>
-      ${owned?`<span class="pill">✅ ${fmt(f.launder)}/day</span>`
-        :`<button class="gold" onclick="A.buyFront('${f.id}')" ${S.cash<f.cost?'disabled':''}>Buy ${fmt(f.cost)}</button>`}</div>
-      <div class="sub">${f.blurb}${owned?'':` · launders ${fmt(f.launder)}/day`}</div></div>`;
+  const nF=FRONTS.filter(f=>S.fronts[f.id]).length, nL=Object.keys(S.luxury).length, nU=Object.keys(S.upgrades).length;
+  let h=segbar('biz',[['fronts','🧺 Fronts',`${nF}/${FRONTS.length}`],['lifestyle','💎 Lifestyle',`${nL}/${LUXURY.length}`],
+    ['upgrades','⚙️ Upgrades',`${nU}/${UPGRADES.length}`],['bank','🏦 Bank']]);
+  const sub=SUB.biz;
+  if(sub==='fronts'){
+    const cap=FRONTS.reduce((a,f)=>a+(S.fronts[f.id]?f.launder:0),0);
+    h+=`<div class="subhint">Street <b class="dirty">cash</b> buys seeds, staff and bribes — lords and lawyers only take <b class="money">bank</b> money. Fronts launder cash → bank every dawn (10% fee). Capacity: <b>${fmt(cap)}/day</b>.</div>`;
+    for(const f of FRONTS){ const owned=S.fronts[f.id];
+      h+=`<div class="card"><div class="rowline"><h3>${f.em} ${f.name}</h3><span class="spacer"></span>
+        ${owned?`<span class="pill">✅ ${fmt(f.launder)}/day</span>`
+          :`<button class="gold" onclick="A.buyFront('${f.id}')" ${S.cash<f.cost?'disabled':''}>Buy ${fmt(f.cost)}</button>`}</div>
+        <div class="sub">${f.blurb}${owned?'':` · launders ${fmt(f.launder)}/day`}</div></div>`; }
+  } else if(sub==='lifestyle'){
+    h+=`<div class="subhint">Every kingpin needs the look. Each piece grants reputation plus a permanent perk.</div>`;
+    for(const l of LUXURY){ const owned=lux(l.id); const funds=l.cur==='bank'?S.bank:S.cash;
+      h+=`<div class="card"><div class="rowline"><h3>${l.em} ${l.name}</h3><span class="spacer"></span>
+        ${owned?'<span class="pill">✅ Owned</span>'
+          :`<button class="gold" onclick="A.buyLux('${l.id}')" ${funds<l.cost?'disabled':''}>Buy ${fmt(l.cost)} <span style="font-size:10px">(${l.cur})</span></button>`}</div>
+        <div class="sub">+${l.rep} rep · ${l.perk}</div></div>`; }
+  } else if(sub==='upgrades'){
+    h+=`<div class="subhint">One-off improvements to your operation.</div>`;
+    for(const u of UPGRADES){ const owned=up(u.id);
+      h+=`<div class="card"><div class="rowline"><h3>${u.em} ${u.name}</h3><span class="spacer"></span>
+        ${owned?'<span class="pill">✅ Installed</span>'
+          :`<button class="gold" onclick="A.buyUpgrade('${u.id}')" ${S.cash<u.cost?'disabled':''}>Buy ${fmt(u.cost)}</button>`}</div>
+        <div class="sub">${u.blurb}</div></div>`; }
+  } else { // bank
+    h+=`<div class="card"><div class="rowline"><h3>🏦 Private Bank</h3><span class="spacer"></span>
+      <button class="gold" onclick="A.withdraw()" ${S.bank<=0?'disabled':''}>Withdraw</button></div>
+      <div class="sub">Balance <b class="money">${fmt(S.bank)}</b>. Pull clean money back out as spendable street cash whenever you like — free of charge.</div></div>`;
+    const bribeCost=Math.round(300+S.heat*25);
+    h+=`<div class="card"><div class="rowline"><h3>🤫 Grease Palms</h3><span class="spacer"></span>
+      <button onclick="A.bribe()" ${S.cash<bribeCost||S.heat<5?'disabled':''}>Bribe ${fmt(bribeCost)}</button></div>
+      <div class="sub">-20 heat, price scales with how hot you are. Heat above 70 risks dawn raids; 100 triggers a crackdown.</div></div>`;
+    h+=`<div class="card" style="border-color:var(--gold-dim)"><div class="rowline">
+      <h3>🏝️ The Gentleman's Exit</h3><span class="spacer"></span>
+      <button class="gold" onclick="A.buyExit()" ${S.bank<exitCost()?'disabled':''}>Retire ${fmt(exitCost())}</button></div>
+      <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(exitCost())}</b> in clean money${lux('art')?' <span class="pill">🖼️ art discount applied</span>':''}. This wins the game — and how cleanly you lived decides the ending.</div></div>`;
   }
-  h+=`<div class="card"><div class="rowline"><h3>🏦 Private Bank</h3><span class="spacer"></span>
-    <button class="gold" onclick="A.withdraw()" ${S.bank<=0?'disabled':''}>Withdraw</button></div>
-    <div class="sub">Balance <b class="money">${fmt(S.bank)}</b>. Pull clean money back out as spendable street cash whenever you like — free of charge.</div></div>`;
-  const bribeCost=Math.round(300+S.heat*25);
-  h+=`<div class="card"><div class="rowline"><h3>🤫 Grease Palms</h3><span class="spacer"></span>
-    <button onclick="A.bribe()" ${S.cash<bribeCost||S.heat<5?'disabled':''}>Bribe ${fmt(bribeCost)}</button></div>
-    <div class="sub">-20 heat, price scales with how hot you are. Heat above 70 risks dawn raids; 100 triggers a crackdown.</div></div>`;
-  h+='<div class="card"><h3>💎 The Lifestyle</h3><div class="sub">Every kingpin needs the look. Each piece grants reputation on purchase plus a permanent perk.</div></div>';
-  for(const l of LUXURY){
-    const owned=lux(l.id);
-    const funds=l.cur==='bank'?S.bank:S.cash;
-    h+=`<div class="card"><div class="rowline"><h3>${l.em} ${l.name}</h3><span class="spacer"></span>
-      ${owned?'<span class="pill">✅ Owned</span>'
-        :`<button class="gold" onclick="A.buyLux('${l.id}')" ${funds<l.cost?'disabled':''}>Buy ${fmt(l.cost)} <span style="font-size:10px">(${l.cur})</span></button>`}</div>
-      <div class="sub">+${l.rep} rep · ${l.perk}</div></div>`;
-  }
-  h+='<div class="card"><h3>⚙️ Upgrades</h3></div>';
-  for(const u of UPGRADES){
-    const owned=up(u.id);
-    h+=`<div class="card"><div class="rowline"><h3>${u.em} ${u.name}</h3><span class="spacer"></span>
-      ${owned?'<span class="pill">✅ Installed</span>'
-        :`<button class="gold" onclick="A.buyUpgrade('${u.id}')" ${S.cash<u.cost?'disabled':''}>Buy ${fmt(u.cost)}</button>`}</div>
-      <div class="sub">${u.blurb}</div></div>`;
-  }
-  h+=`<div class="card" style="border-color:var(--gold-dim)"><div class="rowline">
-    <h3>🏝️ The Gentleman's Exit</h3><span class="spacer"></span>
-    <button class="gold" onclick="A.buyExit()" ${S.bank<exitCost()?'disabled':''}>Retire ${fmt(exitCost())}</button></div>
-    <div class="sub">Sell the network, launder your name, retire to the Riviera. Requires <b class="money">${fmt(exitCost())}</b> in clean money${lux('art')?' <span class="pill">🖼️ art discount applied</span>':''}. This wins the game — and how cleanly you lived decides which ending you get.</div></div>`;
   return h;
 }
 
 function rLife(){
-  let h='';
-  // Community trust banner
-  h+=`<div class="card"><div class="rowline"><h3>🕊️ Community Trust</h3><span class="spacer"></span><b style="font-size:18px">${Math.round(S.trust)}/100</b></div>
-    <span class="bar lbar trust"><i style="width:${S.trust}%"></i></span>
-    <div class="sub">The estate's goodwill. High trust cools heat every dawn, quiets witnesses, and unlocks <b>The People's Champion</b> ending. Invest below.</div></div>`;
-
+  const married=(S._weddings&&Object.keys(S._weddings).length)||0;
+  let h=segbar('life',[['love','❤️ Relationships'],['community','🏘️ Community',`${Math.round(S.trust)}`]]);
+  if(SUB.life==='community') return h+communitySection();
+  // ── Relationships ──
   // Family / status
   if(S.family.length || S._weddings){
     let fam='';
@@ -2556,9 +2579,7 @@ function rLife(){
     h+=`<div class="card"><h3>🏡 Your Household</h3><div style="margin-top:6px">${fam}</div>
       <div class="sub" style="margin-top:6px">The people you're doing all this for. Family changes how your story can end.</div></div>`;
   }
-
-  // Relationships
-  h+='<div class="card"><h3>❤️ Relationships</h3><div class="sub">Spend evenings together (once per day) to build affection. At 60 you can commit; at 90 you can marry — then start a family. Each partner grants a lasting perk. Who you choose says everything.</div></div>';
+  h+='<div class="subhint">Spend evenings together (once per day) to build affection. At 60 you can commit; at 90 marry — then start a family. Each partner grants a lasting perk.</div>';
   for(const p of PEOPLE){
     const a=aff(p.id);
     const committed=partnered(p.id);
@@ -2581,8 +2602,13 @@ function rLife(){
       <div class="offbtns" style="margin-top:8px">${btns}</div></div>`;
   }
 
-  // Community investments
-  h+='<div class="card"><h3>🏘️ Give Back to the Community</h3><div class="sub">Put money into the estate. Each project raises Community Trust for a one-off cost plus a small daily upkeep. Skip the upkeep and trust slips.</div></div>';
+  return h;
+}
+function communitySection(){
+  let h=`<div class="card"><div class="rowline"><h3>🕊️ Community Trust</h3><span class="spacer"></span><b style="font-size:18px">${Math.round(S.trust)}/100</b></div>
+    <span class="bar lbar trust"><i style="width:${S.trust}%"></i></span>
+    <div class="sub">The estate's goodwill. High trust cools heat every dawn, quiets witnesses, and unlocks <b>The People's Champion</b> ending.</div></div>`;
+  h+='<div class="subhint">Put money into the estate. Each project raises trust for a one-off cost plus a small daily upkeep. Skip the upkeep and trust slips.</div>';
   for(const c of COMMUNITY){
     const owned=community(c.id);
     h+=`<div class="card"><div class="rowline"><h3>${c.em} ${c.name}</h3><span class="spacer"></span>
@@ -2593,30 +2619,34 @@ function rLife(){
 }
 
 function rLedger(){
-  const st=S.stats;
-  let h=`<div class="statgrid">
-    <div class="card"><div class="big">${fmt(st.earned)}</div><div class="sub">Total earned</div></div>
-    <div class="card"><div class="big">${fmt(st.laundered)}</div><div class="sub">Laundered</div></div>
-    <div class="card"><div class="big">${st.sold}</div><div class="sub">Units sold</div></div>
-    <div class="card"><div class="big">${st.harvests}</div><div class="sub">Harvests</div></div>
-    <div class="card"><div class="big">${st.contracts}</div><div class="sub">Contracts done</div></div>
-    <div class="card"><div class="big">${st.raids}</div><div class="sub">Raids survived</div></div>
-    <div class="card"><div class="big">${st.turf||0}</div><div class="sub">Corners taken</div></div>
-    <div class="card"><div class="big">${ownedTurf().length}/${DISTRICTS.length}</div><div class="sub">Districts held</div></div>
-    <div class="card"><div class="big">${st.hits||0}</div><div class="sub">Hits ordered</div></div>
-    <div class="card"><div class="big">${Math.round(S.trust)}</div><div class="sub">Community trust</div></div>
-  </div>`;
   const got=Object.keys(S.ach).length;
-  h+=`<div class="card"><h3>🏆 Achievements <span class="pill">${got}/${ACH.length}</span></h3>
-    <div class="achgrid" style="margin-top:8px">`+
-    ACH.map(a=>`<div class="ach ${S.ach[a.id]?'got':'no'}"><span class="em">${a.em}</span> <b>${a.name}</b><br><span class="muted">${a.desc}</span></div>`).join('')
-    +'</div></div>';
-  h+='<div class="card"><h3>📜 The Ledger</h3><div class="loglist">'+
-    (S.log.length?S.log.map(l=>`<div>${l.bad?'⚠️ ':''}<b>${l.t}</b> — ${l.msg}</div>`).join(''):'<div>Nothing yet. Get to work.</div>')+
-    '</div></div>';
-  h+=`<div class="card"><div class="rowline"><h3>💾 Save</h3><span class="spacer"></span>
-    <button class="danger" onclick="A.newGame()">New Game</button></div>
-    <div class="sub">Progress autosaves to this device every few seconds. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
+  let h=segbar('ledger',[['stats','📊 Stats'],['ach','🏆 Awards',`${got}/${ACH.length}`],['log','📜 Log']]);
+  if(SUB.ledger==='ach'){
+    h+=`<div class="card"><div class="achgrid">`+
+      ACH.map(a=>`<div class="ach ${S.ach[a.id]?'got':'no'}"><span class="em">${a.em}</span> <b>${a.name}</b><br><span class="muted">${a.desc}</span></div>`).join('')
+      +'</div></div>';
+  } else if(SUB.ledger==='log'){
+    h+='<div class="card"><h3>📜 The Ledger</h3><div class="loglist">'+
+      (S.log.length?S.log.map(l=>`<div>${l.bad?'⚠️ ':''}<b>${l.t}</b> — ${l.msg}</div>`).join(''):'<div>Nothing yet. Get to work.</div>')+
+      '</div></div>';
+    h+=`<div class="card"><div class="rowline"><h3>💾 Save</h3><span class="spacer"></span>
+      <button class="danger" onclick="A.newGame()">New Game</button></div>
+      <div class="sub">Progress autosaves to this device every few seconds. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
+  } else {
+    const st=S.stats;
+    h+=`<div class="statgrid">
+      <div class="card"><div class="big">${fmt(st.earned)}</div><div class="sub">Total earned</div></div>
+      <div class="card"><div class="big">${fmt(st.laundered)}</div><div class="sub">Laundered</div></div>
+      <div class="card"><div class="big">${st.sold}</div><div class="sub">Units sold</div></div>
+      <div class="card"><div class="big">${st.harvests}</div><div class="sub">Harvests</div></div>
+      <div class="card"><div class="big">${st.contracts}</div><div class="sub">Contracts done</div></div>
+      <div class="card"><div class="big">${st.raids}</div><div class="sub">Raids survived</div></div>
+      <div class="card"><div class="big">${st.turf||0}</div><div class="sub">Corners taken</div></div>
+      <div class="card"><div class="big">${ownedTurf().length}/${DISTRICTS.length}</div><div class="sub">Districts held</div></div>
+      <div class="card"><div class="big">${st.hits||0}</div><div class="sub">Hits ordered</div></div>
+      <div class="card"><div class="big">${Math.round(S.trust)}</div><div class="sub">Community trust</div></div>
+    </div>`;
+  }
   return h;
 }
 

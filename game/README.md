@@ -35,8 +35,10 @@ saves automatically to your device.
 family and clean hands, community goodwill, a trail of bodies, low heat, or high
 reputation — decides which of seven endings you get.
 
-Controls: tap/click everything. Speed controls (⏸ 1× 2× 4×) and a 🌙 *Dawn* skip live in
-the top bar. Progress autosaves to `localStorage` every 15 seconds.
+Controls: tap/click everything. Speed controls (⏸ 1× 2× 4×) and a 🌙 *Dawn* skip (lie
+low to cool your heat) live in the top bar. Each busy tab has a **segmented sub-tab bar**
+(e.g. Business → Fronts / Lifestyle / Upgrades / Bank) so you switch between sections
+instead of scrolling one long list. Progress autosaves to `localStorage` every 15 seconds.
 
 ## 📱 Get it on Android
 
