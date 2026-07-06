@@ -1394,6 +1394,7 @@ function fireEvent(){
 const A = {
   tab(t){ S.tab=t; render(); },
   sub(tab,key){ SUB[tab]=key; render(); },
+  booksPeriod(p){ BOOKS_PERIOD=p; render(); },
   speed(n){ S.speed=n; renderHUD(); },
   close(){ closeModal(); },
 
@@ -2824,17 +2825,25 @@ const FIN_CATS={
   wages:['🎩','Crew wages'], rent:['🏛️','Estate rent'], upkeep:['🏘️','Upkeep'], washfee:['🧺','Laundering fee'],
   seeds:['🌱','Seeds'], bribes:['🤫','Bribes'], fines:['🚨','Fines'], purchases:['🛒','Purchases'],
 };
+// Which period the daily breakdown shows — 'today' (resets to empty every dawn,
+// fills up live) or 'yesterday' (the last fully-closed day). Plain UI state, not
+// saved, same pattern as SUB — a lifetime running average would never look
+// "reset" even after you stop spending, so the daily view must use a single day.
+let BOOKS_PERIOD='today';
 function booksSection(){
   const f=S.fin, dc=f.daysClosed;
-  // averages per closed day (lifetime) — the truest "run rate"; fall back to last night before any dawn
-  const src = dc>0 ? {inc:f.life.inc, exp:f.life.exp, div:dc, label:`per day, averaged over ${dc} day${dc!==1?'s':''}`}
-                   : {inc:f.today.inc, exp:f.today.exp, div:1, label:'so far today — check back after dawn for daily averages'};
-  const per=(o)=>{ const r={}; for(const k in o) r[k]=o[k]/src.div; return r; };
-  const inc=per(src.inc), exp=per(src.exp);
+  const viewingYesterday = BOOKS_PERIOD==='yesterday';
+  if(viewingYesterday && dc===0){
+    // nothing has closed yet — fall back to today rather than show a blank "yesterday"
+    BOOKS_PERIOD='today';
+  }
+  const per = BOOKS_PERIOD==='yesterday' ? f.last : f.today;
+  const periodLabel = BOOKS_PERIOD==='yesterday' ? `Day ${S.day-1} (closed at dawn)` : `Day ${S.day} so far — resets next dawn`;
+  const inc=per.inc||{}, exp=per.exp||{};
   const incTot=finSum(inc), expTot=finSum(exp), net=incTot-expTot;
   const rows=(obj,color)=>{
     const ents=Object.entries(obj).filter(([k,v])=>v>0.5).sort((a,b)=>b[1]-a[1]);
-    if(!ents.length) return '<div class="pnl-hint">Nothing recorded yet.</div>';
+    if(!ents.length) return `<div class="pnl-hint">${BOOKS_PERIOD==='today'?'Nothing yet today.':'Nothing recorded that day.'}</div>`;
     const max=ents[0][1];
     return ents.map(([k,v],i)=>{ const c=FIN_CATS[k]||['•',k];
       return `<div class="pnl-row${(color==='red'&&i===0)?' lead':''}">
@@ -2843,22 +2852,25 @@ function booksSection(){
         <span class="pl-amt ${color==='red'?'bad':'money'}">${fmt(v)}</span></div>`;
     }).join('');
   };
-  let h=`<div class="card">
+  let h=`<div class="seg" style="margin-top:2px">
+    <button class="${BOOKS_PERIOD==='today'?'on':''}" onclick="A.booksPeriod('today')">📅 Today</button>
+    <button class="${BOOKS_PERIOD==='yesterday'?'on':''}" onclick="A.booksPeriod('yesterday')" ${dc===0?'disabled':''}>🌙 Yesterday</button>
+  </div>`;
+  h+=`<div class="card">
     <div class="pnl-net"><span class="pn-big ${net>=0?'money':'bad'}">${net>=0?'+':'−'}${fmt(Math.abs(net))}</span>
-      <span class="sub">net / day</span></div>
-    <div class="pnl-hint">${net>=0
-      ? `You're running a profit of about <b class="money">${fmt(net)}</b> a day. ${src.label}.`
-      : `You're bleeding about <b class="bad">${fmt(-net)}</b> a day — spending more than you bring in. ${src.label}.`}</div>
+      <span class="sub">net</span></div>
+    <div class="pnl-hint">${periodLabel}. ${net>=0
+      ? `Running a profit of <b class="money">${fmt(net)}</b> so far.`
+      : (incTot+expTot>0 ? `Down <b class="bad">${fmt(-net)}</b> so far — spending more than's come in.` : '')}</div>
   </div>`;
-  h+=`<div class="card"><h3 class="money">💷 Money In · ${fmt(incTot)}/day</h3><div style="margin-top:6px">${rows(inc,'green')}</div></div>`;
-  h+=`<div class="card"><h3 class="bad">💸 Money Out · ${fmt(expTot)}/day</h3><div style="margin-top:6px">${rows(exp,'red')}</div></div>`;
-  // last night's concrete figures + lifetime
-  const lastInc=finSum(f.last.inc), lastExp=finSum(f.last.exp);
+  h+=`<div class="card"><h3 class="money">💷 Money In · ${fmt(incTot)}</h3><div style="margin-top:6px">${rows(inc,'green')}</div></div>`;
+  h+=`<div class="card"><h3 class="bad">💸 Money Out · ${fmt(expTot)}</h3><div style="margin-top:6px">${rows(exp,'red')}</div></div>`;
+  // lifetime totals live separately, clearly labelled — these accumulate on purpose and never reset
   const lifeInc=finSum(f.life.inc), lifeExp=finSum(f.life.exp);
-  h+=`<div class="statgrid">
-    <div class="card"><div class="big ${lastInc-lastExp>=0?'money':'bad'}">${lastInc-lastExp>=0?'+':'−'}${fmt(Math.abs(lastInc-lastExp))}</div><div class="sub">Last night's net</div></div>
-    <div class="card"><div class="big">${fmt(lifeInc)}</div><div class="sub">Earned (lifetime)</div></div>
-  </div>`;
+  h+=`<div class="card"><h3>📈 Lifetime</h3><div class="statgrid" style="margin-top:2px">
+    <div class="card"><div class="big money">${fmt(lifeInc)}</div><div class="sub">Total earned</div></div>
+    <div class="card"><div class="big bad">${fmt(lifeExp)}</div><div class="sub">Total spent</div></div>
+  </div></div>`;
   h+=`<div class="pnl-hint" style="text-align:center;margin-top:8px">Laundering moves cash to the bank; only its 10% fee shows as an expense. One-off buys (estates, luxuries, hires) sit under Purchases.</div>`;
   return h;
 }
