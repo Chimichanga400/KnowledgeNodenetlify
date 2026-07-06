@@ -1,6 +1,23 @@
 [build]
   functions = "netlify/functions"
 
+# Serve the game's own files at /game/ before the SPA catch-all below,
+# otherwise every /game/ request is rewritten to the landing page.
+[[redirects]]
+  from = "/game"
+  to = "/game/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/game/"
+  to = "/game/index.html"
+  status = 200
+
+[[redirects]]
+  from = "/game/*"
+  to = "/game/:splat"
+  status = 200
+
 [[redirects]]
   from = "/*"
   to = "/index.html"

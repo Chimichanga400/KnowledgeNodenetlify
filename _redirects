@@ -1,1 +1,8 @@
+# Serve the game's own files at /game/ — must come before the catch-all
+# so the SPA rewrite below doesn't swallow it and show the landing page.
+/game            /game/index.html   200
+/game/           /game/index.html   200
+/game/*          /game/:splat       200
+
+# SPA catch-all for the KnowledgeNode app
 /*    /index.html   200
