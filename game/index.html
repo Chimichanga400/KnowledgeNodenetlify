@@ -1958,8 +1958,11 @@ function drawTree(ctx,gx,gy){ const p=isoPt(gx,gy);
   ctx.fillStyle='#153a24'; ctx.beginPath(); ctx.arc(p[0]-2,p[1]-15,6,0,7); ctx.fill();
   ctx.fillStyle='#3a2a1a'; ctx.fillRect(p[0]-1,p[1]-5,3,6); }
 function drawLamp(ctx,gx,gy,night){ const p=isoPt(gx,gy);
+  if(night>0.4){ // warm pool of light + a soft reflection on the ground below
+    const pool=ctx.createRadialGradient(p[0],p[1],1,p[0],p[1],26); pool.addColorStop(0,`rgba(255,214,120,${(0.22*night).toFixed(2)})`); pool.addColorStop(1,'rgba(255,214,120,0)');
+    ctx.save(); ctx.translate(p[0],p[1]); ctx.scale(1,0.5); ctx.fillStyle=pool; ctx.beginPath(); ctx.arc(0,0,26,0,7); ctx.fill(); ctx.restore(); }
   ctx.strokeStyle='#26302a'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-24); ctx.stroke();
-  if(night>0.4){ const g=ctx.createRadialGradient(p[0],p[1]-25,1,p[0],p[1]-25,15); g.addColorStop(0,'rgba(255,220,120,.6)'); g.addColorStop(1,'rgba(255,220,120,0)'); ctx.fillStyle=g; ctx.beginPath(); ctx.arc(p[0],p[1]-25,15,0,7); ctx.fill(); }
+  if(night>0.4){ softGlow(ctx,p[0],p[1]-25,16,'rgba(255,220,120,0.6)'); }
   ctx.fillStyle=night>0.4?'#ffd75e':'#3a3a2a'; ctx.beginPath(); ctx.arc(p[0],p[1]-25,3,0,7); ctx.fill(); }
 function drawCar(ctx,gx,gy){ const p=isoPt(gx,gy); ctx.fillStyle='#5a1512';
   roundRect(ctx,p[0]-11,p[1]-7,22,9,3); ctx.fillStyle='#7a2320'; roundRect(ctx,p[0]-7,p[1]-11,14,5,2);
@@ -2024,22 +2027,27 @@ function updatePeds(dt){
 function drawPed(ctx,p,now){
   const [x,y]=pedPos(p);
   const sc=0.85+0.3*(p.t);                       // nearer street = slightly bigger
-  const swing=Math.sin(now*7+p.ph)*2.2;
-  const bob=Math.abs(Math.sin(now*7+p.ph))*1.2;
-  // soft contact shadow
-  softShadow(ctx,x+2,y+1,7*sc,2.6*sc,0.3);
-  const top=y-16*sc-bob;
+  const swing=Math.sin(now*7+p.ph)*2.4;
+  const bob=Math.abs(Math.sin(now*7+p.ph))*1.3;
+  softShadow(ctx,x+2,y+1,7*sc,2.6*sc,0.32);
+  const top=y-16*sc-bob, bw=(p.type==='enforcer'?4.2:3.3)*sc;
   // legs
-  ctx.strokeStyle='#14181c'; ctx.lineWidth=2*sc; ctx.beginPath();
+  ctx.strokeStyle='#12161a'; ctx.lineWidth=2.1*sc; ctx.lineCap='round'; ctx.beginPath();
   ctx.moveTo(x,top+9*sc); ctx.lineTo(x-swing*0.5,y); ctx.moveTo(x,top+9*sc); ctx.lineTo(x+swing*0.5,y); ctx.stroke();
-  // body
-  ctx.fillStyle=p.col; roundRect(ctx,x-3.2*sc,top,6.4*sc,10*sc,2*sc);
-  // head
-  ctx.fillStyle='#d9b38a'; ctx.beginPath(); ctx.arc(x,top-2*sc,2.8*sc,0,7); ctx.fill();
+  // arms swinging opposite the legs
+  ctx.strokeStyle=shade(p.col,-14); ctx.lineWidth=1.8*sc; ctx.beginPath();
+  ctx.moveTo(x-bw*0.7,top+2*sc); ctx.lineTo(x-bw*0.7+swing*0.5,top+8*sc);
+  ctx.moveTo(x+bw*0.7,top+2*sc); ctx.lineTo(x+bw*0.7-swing*0.5,top+8*sc); ctx.stroke();
+  // body with a soft left-light gradient
+  const g=ctx.createLinearGradient(x-bw,0,x+bw,0); g.addColorStop(0,shade(p.col,16)); g.addColorStop(1,shade(p.col,-14));
+  ctx.fillStyle=g; roundRect(ctx,x-bw,top,bw*2,10*sc,2.2*sc);
+  // head with a highlight
+  ctx.fillStyle='#c99e78'; ctx.beginPath(); ctx.arc(x,top-2*sc,2.9*sc,0,7); ctx.fill();
+  ctx.fillStyle='#e2ba90'; ctx.beginPath(); ctx.arc(x-0.9*sc,top-2.7*sc,1.5*sc,0,7); ctx.fill();
   // type markers
-  if(p.type==='police'){ ctx.fillStyle='#4a6ab0'; ctx.fillRect(x-3.4*sc,top-4.6*sc,6.8*sc,2.2*sc); }
-  if(p.type==='runner'){ ctx.fillStyle='#0c0f13'; ctx.beginPath(); ctx.arc(x,top-2*sc,3.1*sc,3.6,6.6); ctx.fill(); } // hood
-  if(p.type==='enforcer'){ ctx.fillStyle=p.col; roundRect(ctx,x-4.2*sc,top,8.4*sc,10*sc,2*sc); } // broad
+  if(p.type==='police'){ ctx.fillStyle='#4a6ab0'; ctx.fillRect(x-3.4*sc,top-4.8*sc,6.8*sc,2.2*sc);
+    ctx.fillStyle='#dfe6f2'; ctx.fillRect(x-2*sc,top-5.6*sc,4*sc,1.4*sc); }
+  if(p.type==='runner'){ ctx.fillStyle='#0c0f13'; ctx.beginPath(); ctx.arc(x,top-2*sc,3.2*sc,3.5,6.7); ctx.fill(); } // hood
 }
 
 /* ── Gang-war effects ────────────────────────────────────────────── */
@@ -2091,8 +2099,31 @@ function drawSky(ctx,night){
   sky.addColorStop(0.5, mixNight('#7fa8cf','#101a30',night));
   sky.addColorStop(1, mixNight('#2c3a2a','#0a130d',night));
   ctx.fillStyle=sky; ctx.fillRect(0,0,EMP_W,EMP_H);
+  const h=S.min/60;
+  // sun by day (6→20), moon by night — arcing across the sky with a soft glow
+  if(h>=5.5 && h<=20.5){
+    const p=(h-5.5)/15, x=90+(EMP_W-180)*p, y=150-95*Math.sin(Math.PI*p);
+    softGlow(ctx,x,y,54,'rgba(255,232,150,0.5)');
+    ctx.fillStyle='#ffe08a'; ctx.beginPath(); ctx.arc(x,y,14,0,7); ctx.fill();
+  } else {
+    const hh = h>20.5 ? h-20.5 : h+3.5, p=hh/9, x=90+(EMP_W-180)*p, y=140-90*Math.sin(Math.PI*p);
+    softGlow(ctx,x,y,40,`rgba(220,228,240,${(0.3+night*0.4).toFixed(2)})`);
+    ctx.fillStyle='#e9e7d4'; ctx.beginPath(); ctx.arc(x,y,11,0,7); ctx.fill();
+    ctx.fillStyle=mixNight('#7fa8cf','#101a30',night); ctx.beginPath(); ctx.arc(x-4,y-3,9,0,7); ctx.fill(); // crescent
+  }
+  // stars
   if(night>0.4){ ctx.fillStyle=`rgba(240,236,214,${(night-0.4)*1.2})`;
-    for(let i=0;i<30;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%100; ctx.fillRect(sx,sy,1.5,1.5); } }
+    for(let i=0;i<34;i++){ const sx=(i*97)%EMP_W, sy=(i*53)%100, tw=0.6+0.4*Math.sin(i*1.3+S.min*0.05);
+      ctx.globalAlpha=(night-0.4)*1.2*tw; ctx.fillRect(sx,sy,1.5,1.5); } ctx.globalAlpha=1; }
+}
+// scatter little grass tufts across a ground band for texture
+function grassTufts(ctx,gx0,gy0,gx1,gy1,n,night){
+  const c=mixNight('#2e5636','#16301f',night);
+  ctx.strokeStyle=c; ctx.lineWidth=1.4; ctx.lineCap='round';
+  for(let i=0;i<n;i++){ const gx=gx0+((i*37)%1000/1000)*(gx1-gx0), gy=gy0+((i*61)%1000/1000)*(gy1-gy0);
+    const p=isoPt(gx,gy); ctx.beginPath();
+    ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0]-2,p[1]-4); ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0]+2,p[1]-4);
+    ctx.moveTo(p[0],p[1]); ctx.lineTo(p[0],p[1]-5); ctx.stroke(); }
 }
 // ── GROW scene: an underground grow room (a garden in a basement) ──
 function drawGardenPot(ctx,gx,gy,plot){
@@ -2179,6 +2210,13 @@ function empDrawGarden(ctx,now){
 
   // faint grow-light haze over everything
   ctx.fillStyle='rgba(150,70,180,0.06)'; ctx.fillRect(0,0,EMP_W,EMP_H);
+  // slow-drifting dust motes catching the grow lights
+  ctx.globalCompositeOperation='lighter';
+  for(let i=0;i<26;i++){ const t=now*0.15+i, mx=(i*137)%EMP_W, my=100+((i*83)%230)+Math.sin(t)*10;
+    const dx=mx+Math.sin(t*0.6+i)*24, dy=my-((now*6+i*40)%180);
+    ctx.fillStyle=`rgba(230,190,255,${0.05+0.05*Math.sin(t*2)})`;
+    ctx.beginPath(); ctx.arc(dx,dy,1.3,0,7); ctx.fill(); }
+  ctx.globalCompositeOperation='source-over';
   let growing=0, total=0; for(const p of plots){ total++; if(p.strain) growing++; }
   postFX(ctx);
   ctx.fillStyle='rgba(240,236,214,.8)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
@@ -2194,6 +2232,7 @@ function empDrawHouse(ctx,now){
   drawSky(ctx,night);
   // lawn
   poly(ctx,[isoPt(0.2,0.2),isoPt(8.8,0.2),isoPt(8.8,8.8),isoPt(0.2,8.8)], mixNight('#1f4228','#0e2015',night));
+  grassTufts(ctx,0.5,0.5,8.5,8.5,34,night);
   // gravel paths between the plots
   const pc=mixNight('#2c2d30','#15171b',night);
   ctx.strokeStyle=pc; ctx.lineWidth=8; ctx.lineCap='round';
@@ -2227,6 +2266,7 @@ function empDrawCity(ctx,now){
   drawSky(ctx,night);
   // ground
   poly(ctx,[isoPt(-0.5,-0.5),isoPt(9.5,-0.5),isoPt(9.5,9.5),isoPt(-0.5,9.5)], mixNight('#1c3a24','#0d1c13',night));
+  grassTufts(ctx,0,0,9,9,38,night);
   // roads (grid of avenues)
   const rc=mixNight('#2a2b2e','#14161a',night);
   ROAD_LINES.forEach(L=>{ roadStrip(ctx,false,L,rc); roadStrip(ctx,true,L,rc); });
