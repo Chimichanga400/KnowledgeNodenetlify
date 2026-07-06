@@ -129,7 +129,7 @@
   .rowline{display:flex; align-items:center; gap:10px; flex-wrap:wrap;}
   .spacer{flex:1;}
   .money{color:var(--green); font-variant-numeric:tabular-nums;}
-  .dirty{color:#d9b45b;} .bad{color:var(--red);} .muted{color:var(--ink-dim);}
+  .dirty{color:#d9b45b;} .bad{color:var(--red);} .muted{color:var(--ink-dim);} .blue{color:var(--blue);}
   .pill{display:inline-block; background:var(--panel2); border:1px solid var(--line);
     border-radius:20px; padding:2px 9px; font-size:11.5px; color:var(--ink-dim); margin:2px 3px 2px 0;}
   .up{color:var(--green);} .down{color:var(--red);}
@@ -456,6 +456,17 @@ const DISTRICTS = [
   {id:'westend', name:'The West End Clubs', crew:'The Mayfair Firm',    income:3000, str:4, blurb:'Velvet ropes, VIP booths, and a very thirsty clientele.'},
   {id:'docks',   name:'The Docklands',      crew:'The Dockside Syndicate',income:6000,str:5, blurb:'Containers in, containers out. The crown jewel of the city.'},
 ];
+// The overarching antagonist: the man every other crew answers to.
+const RIVAL = { name:'Cornelius Vane', short:'Vane', crew:'The Dockside Syndicate', em:'🎩' };
+// Beef thresholds → how Vane treats you. Rises as you take turf, order hits and dominate.
+function beefTier(v){ return v>=100?4 : v>=75?3 : v>=45?2 : v>=20?1 : 0; }
+const BEEF_TIERS=[
+  {name:'Beneath his notice', desc:'Vane doesn\'t know your name yet.'},
+  {name:'On his radar',       desc:'Word\'s reached the docks. He\'s watching.'},
+  {name:'A problem',          desc:'Vane\'s crews are pushing back — expect trouble at dawn.'},
+  {name:'A threat',           desc:'The Syndicate wants you gone. Retaliation is coming, hard.'},
+  {name:'War',                desc:'It\'s him or you now.'},
+];
 const LUXURY = [
   {id:'watch', name:'Presidential Watch',       em:'⌚', cost:5000,   cur:'cash', rep:10, perk:'Haggling succeeds 5% more often.'},
   {id:'motor', name:'Vintage Jaguar',           em:'🏎️', cost:15000,  cur:'bank', rep:20, perk:'Street buyers appear 15% more often.'},
@@ -535,6 +546,7 @@ const ACH = [
   {id:'love',      em:'💍', name:'Settling Down',          desc:'Marry someone'},
   {id:'family',    em:'👶', name:'For the Family',         desc:'Start a family'},
   {id:'people',    em:'🕊️', name:"The People's Champion",  desc:'Reach 100 Community Trust'},
+  {id:'nemesis',   em:'⚔️', name:'Last One Standing',      desc:'Defeat Cornelius Vane in the showdown'},
   {id:'won',       em:'🏝️', name:"The Gentleman's Exit",   desc:'Retire spotless'},
 ];
 const EXIT_COST = 500000;
@@ -552,13 +564,14 @@ function freshState(){
     staff:[], fronts:{}, upgrades:{}, turf:{}, luxury:{}, community:{},
     people:{}, dateDoneDay:0, married:null, family:[],
     hits:{},
+    beef:0, rivalDefeated:false, trucedUntil:0, showdownSeen:false,
     offers:[], nextOfferId:1,
     contracts:[], nextContractId:1,
     eventMin:null, eventDoneDay:0,
     ach:{}, log:[], won:false, lost:false, brokeDays:0,
     muted:false,
     fin:{ today:{inc:{},exp:{}}, last:{inc:{},exp:{}}, life:{inc:{},exp:{}}, daysClosed:0, hist:[] },
-    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, crackdowns:0, daysPlayed:1},
+    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, crackdowns:0, retaliations:0, daysPlayed:1},
     seenIntro:false,
   };
 }
@@ -603,6 +616,9 @@ function addTrust(n){ S.trust=clamp(S.trust+n,0,100); }
 function repMult(){ return partnered('kojo')?1.2:1; }
 function addRepBase(n){ addRep(n*repMult()); }
 function district(id){ return DISTRICTS.find(d=>d.id===id); }
+// Beef with Vane. Nia (partnered rival lieutenant) keeps his crews calmer.
+function addBeef(n){ if(S.rivalDefeated) return; if(n>0 && partnered('nia')) n*=0.6; S.beef=clamp(S.beef+n,0,100); }
+function truced(){ return S.day <= (S.trucedUntil||0); }
 
 function log(msg, bad){
   S.log.unshift({t:clockStr(), msg, bad:!!bad});
@@ -976,6 +992,20 @@ function settle(lielow){
   if(S.heat>0){ const before=S.heat; S.heat=clamp(S.heat-cool,0,100);
     notes.push(`Heat cooled ${before}→${S.heat}.`); }
   S._lastHeatDelta = Math.round(S.heat - heatBefore);
+  // ── Rival: Cornelius Vane and the Dockside Syndicate ──
+  S._showdownNow=false;
+  if(!S.rivalDefeated){
+    const held=ownedTurf();
+    // beef drifts with how much you're stepping on his toes; lying low / staying small cools it
+    let drift=held.length + (S.rep>=400?1:0) + (held.some(d=>d.id==='docks')?3:0);
+    if(lielow) drift-=2;
+    if(!held.length && S.stats.hits===0) drift-=2;
+    if(truced()) drift=Math.min(drift,-4);
+    if(drift) addBeef(drift);
+    const tier=beefTier(S.beef);
+    if(tier>=2 && !truced() && Math.random() < (0.25+(tier-2)*0.30)) rivalRetaliate(tier, notes);
+    if(S.beef>=100 && !S.showdownSeen && !truced()){ S._showdownNow=true; }
+  }
   // contracts: expire + maybe generate
   S.contracts=S.contracts.filter(c=>{
     if(S.day>c.deadline){ addRep(-5); log(`Contract for ${strain(c.strain).name} expired. Your word suffers. (-5 rep)`,true); return false; }
@@ -1001,6 +1031,8 @@ function settle(lielow){
   toast(`🌅 <b>Dawn, day ${S.day}.</b> ` + (notes[0]||''), false);
   chkAch();
   save();
+  // the showdown supersedes the ordinary dawn — fire it last so its modal is the one showing
+  if(S._showdownNow){ S._showdownNow=false; S.showdownSeen=true; triggerShowdown(); }
 }
 
 /* ── Raids ───────────────────────────────────────────────────────── */
@@ -1069,6 +1101,73 @@ function gameOverBroke(){
     <p class="muted">Earned ${fmt(S.stats.earned)} · ${S.stats.sold} units sold · ${S.stats.harvests} harvests.</p>
     <div class="choices"><button class="gold" onclick="A.newGame(true)">New Empire</button></div>`);
   save();
+}
+
+/* ── Rival: Vane's escalating retaliation & the showdown ──────────── */
+function rivalRetaliate(tier, notes){
+  S.stats.retaliations++;
+  const before=notes.length;
+  const held=ownedTurf();
+  const pool=['tax','van'];
+  if(held.length) pool.push('corner');
+  if(tier>=3){ pool.push('seize','heat');
+    if(S.staff.some(s=>s.role==='enforcer')) pool.push('staff');
+    if(anyPlants()) pool.push('grow'); }
+  const act=pick(pool);
+  if(act==='tax'){ const t=Math.round(S.cash*0.12); if(t>0){ S.cash-=t; finRec('exp','fines',t); } notes.push(`💢 ${RIVAL.crew} shook your runners down for ${fmt(t)}.`); }
+  else if(act==='van'){ const t=Math.min(S.cash,ri(800,2200)); S.cash-=t; finRec('exp','fines',t); addHeat(4); notes.push(`🔥 Vane's crew torched one of your vans — ${fmt(t)} gone, +4 heat.`); }
+  else if(act==='corner'){ const d=pick(held); delete S.turf[d.id]; addRep(-4); notes.push(`🚩 The Syndicate took ${d.name} back off you overnight. (-4 rep)`); }
+  else if(act==='seize'){ let s=0; for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.3); S.inv[k]-=take; s+=take; } notes.push(`📦 Vane's men jacked a shipment — ${s} units gone.`); }
+  else if(act==='heat'){ addHeat(12); notes.push(`📞 Vane tipped the police off about you. (+12 heat)`); }
+  else if(act==='staff'){ const idx=S.staff.findIndex(s=>s.role==='enforcer'); if(idx>=0){ const g=S.staff.splice(idx,1)[0]; addRep(-3); notes.push(`🚑 ${g.name} was put in hospital by the Syndicate. (-3 rep)`); } }
+  else if(act==='grow'){ const eids=Object.keys(S.estates).filter(id=>S.estates[id].owned&&S.estates[id].plots.some(p=>p.strain)); if(eids.length){ const eid=pick(eids); let n=0; for(const p of S.estates[eid].plots){ if(p.strain){n++;p.strain=null;p.grown=0;p.water=0;p.dry=false;} } addHeat(3); notes.push(`🔥 Vane's crew burned a grow at ${ESTATES.find(e=>e.id===eid).name} — ${n} plants lost.`); } }
+  if(notes.length>before) toast(notes[notes.length-1]);
+}
+function triggerShowdown(){
+  const enf=countRole('enforcer');
+  const canFirm=enf>=4 && S.cash>=20000;
+  const canTrap=countRole('fixer')>=1 && S.cash>=8000;
+  const canPeace=S.bank>=50000;
+  const firmOdds=Math.round(Math.min(0.9, 0.55+0.06*(enf-4)+(partnered('nia')?0.15:0))*100);
+  const trapOdds=Math.round(Math.min(0.85, 0.5+0.05*enf+(up('scanner')?0.1:0)+(partnered('nia')?0.1:0))*100);
+  shake(); sfx('bad');
+  showModal(`<h2>⚔️ Vane Sends Word</h2>
+    <p class="serif" style="font-style:italic">"The docks. Midnight. Just you and me — and everyone we've got."</p>
+    <p>Cornelius Vane has decided the city isn't big enough for the pair of you. There's no bribing your way out of this one. It ends tonight, one way or another.</p>
+    <div class="choices">
+      <button ${canFirm?'':'disabled'} onclick="A.showdown('firm')">🥊 Bring the whole firm<small>${enf} enforcer${enf!==1?'s':''} · £20,000 · ~${firmOdds}% — needs 4+ enforcers${partnered('nia')?' · Nia stands with you':''}</small></button>
+      <button ${canTrap?'':'disabled'} onclick="A.showdown('trap')">🪤 Set a trap at the docks<small>Needs a Fixer · £8,000 · ~${trapOdds}% — cleverer, fewer bodies</small></button>
+      <button ${canPeace?'':'disabled'} onclick="A.showdown('peace')">🤝 Sue for peace<small>£50,000 (bank) · a 20-day truce — but Vane lives to come again</small></button>
+      <button onclick="A.showdown('back')">🏳️ Back down<small>Give up ground and your pride. He won't forget it.</small></button>
+    </div>`);
+}
+function rivalWin(kind){
+  S.rivalDefeated=true; S.beef=0; S.trucedUntil=0; S.turf.docks=true; S.stats.turf++;
+  addRepBase(80); addHeat(20);
+  award('nemesis'); sfx('win'); fxBurst('👑',12); shake();
+  log('Defeated Cornelius Vane. The Dockside Syndicate is broken and the docks are yours.',false);
+  showModal(`<h2>👑 The City Is Yours</h2>
+    <p>${kind==='trap'?'The trap closed clean — Vane never saw it coming.':'It was ugly, and it was close, but when the smoke cleared it was your people still standing.'}
+    Cornelius Vane is finished. Word travels fast: there's only one name that matters in this city now, and it's yours.</p>
+    <p class="muted">The Docklands are yours. +80 rep. The Syndicate will trouble you no more.</p>
+    <div class="choices"><button class="gold" onclick="A.close()">Take the throne</button></div>`);
+  render(); save();
+}
+function rivalLose(kind){
+  const enfLost=Math.ceil(countRole('enforcer')/2);
+  for(let i=0;i<enfLost;i++){ const idx=S.staff.findIndex(s=>s.role==='enforcer'); if(idx>=0) S.staff.splice(idx,1); }
+  const held=ownedTurf().sort((a,b)=>b.str-a.str); let dlost=0;
+  for(const d of held.slice(0,2)){ delete S.turf[d.id]; dlost++; }
+  const cashHit=Math.round(S.cash*0.5); S.cash-=cashHit; finRec('exp','fines',cashHit);
+  addHeat(25); addRep(-15);
+  S.beef=70; S.showdownSeen=false;   // he thinks he's won — but you can rebuild and come again
+  shake();
+  showModal(`<h2>🩸 Routed</h2>
+    <p>It went wrong. ${kind==='trap'?'The trap was sprung — on you.':'Vane brought more bodies than you could handle.'}
+    You lost <b>${enfLost} enforcer${enfLost!==1?'s':''}</b>, <b>${dlost} corner${dlost!==1?'s':''}</b> and <b>${fmt(cashHit)}</b>, and you barely walked away.</p>
+    <p class="muted">Vane thinks it's over. Rebuild your firm, and the beef will boil up again — next time, come stronger.</p>
+    <div class="choices"><button onclick="A.close()">Lick your wounds</button></div>`);
+  render(); save();
 }
 
 /* ── Narrative events ────────────────────────────────────────────── */
@@ -1553,6 +1652,7 @@ const A = {
     const p=Math.min(0.95, 0.5+0.15*(enf-need)+(weakened?0.25:0));
     if(Math.random()<p){
       S.turf[id]=true; addHeat(10); addRep(10*d.str); S.stats.turf++;
+      addBeef(d.id==='docks'?40:4+d.str*3);   // Vane takes turf grabs personally — the docks are his
       log(`Took ${d.name} from ${d.crew}. (+${10*d.str} rep, +10 heat)`);
       fxBurst('⚔️',6); shake(); sfx('win'); pushWar('turf');
       showModal(`<h2>⚔️ ${d.name} Is Yours</h2>
@@ -1661,6 +1761,7 @@ const A = {
     S.hits[id]=true;
     addHeat(d.str*4);
     addTrust(-15);
+    addBeef(d.id==='docks'?45:12);   // hitting a crew's leadership is a declaration of war
     S.stats.hits++;
     shake(); sfx('bad'); pushWar('turf');
     // civilian partner recoils
@@ -1673,6 +1774,47 @@ const A = {
       <p class="bad">${partnerNote||'The street got a little colder tonight.'}</p>
       <div class="choices"><button onclick="A.close()">Live with it</button></div>`);
     chkAch(); render(); save();
+  },
+
+  /* ── Rival: Vane ── */
+  tribute(){
+    if(S.rivalDefeated){ toast('Vane is finished — no tribute needed.',true); return; }
+    if(S.beef<=0){ toast('No bad blood to smooth over right now.',true); return; }
+    const cost=5000;
+    if(S.cash<cost){ toast('Not enough cash for a tribute.',true); return; }
+    S.cash-=cost; addBeef(-20); finRec('exp','bribes',cost);
+    log('Sent Vane a tribute to cool tensions. (-20 beef)');
+    toast(`🤝 Tribute sent to Vane. Tensions ease. <span class="muted">(-20 beef)</span>`);
+    render(); save();
+  },
+  showdown(kind){
+    const enf=countRole('enforcer');
+    if(kind==='peace'){
+      if(S.bank<50000){ toast('Not enough clean money.',true); return; }
+      S.bank-=50000; finRec('exp','bribes',50000); S.trucedUntil=S.day+20; S.beef=40;
+      log('Bought a 20-day truce with Vane.');
+      showModal(`<h2>🤝 A Truce</h2><p>£50,000 changes hands in a portacabin that smells of diesel. Vane pockets it without a word. You've bought <b>20 days</b> of quiet — but he's still out there, and he'll want the next payment bigger.</p>
+        <div class="choices"><button onclick="A.close()">For now</button></div>`);
+      render(); save(); return;
+    }
+    if(kind==='back'){
+      const held=ownedTurf().sort((a,b)=>b.str-a.str); let lost=0;
+      for(const d of held.slice(0,2)){ delete S.turf[d.id]; lost++; }
+      addHeat(15); addRep(-20); S.beef=95; S.showdownSeen=false;
+      log(`Backed down from Vane. Gave up ${lost} corner${lost!==1?'s':''}. (-20 rep)`,true);
+      showModal(`<h2>🏳️ You Blinked</h2><p>You don't show. By morning ${lost>0?`the Syndicate has helped itself to <b>${lost} of your corners</b>, and `:''}word is all over the city that you bottled it. (-20 rep, +15 heat.)</p>
+        <p class="muted">Vane will be back. He always is.</p>
+        <div class="choices"><button onclick="A.close()">Swallow it</button></div>`);
+      render(); save(); return;
+    }
+    // fight
+    const cost=kind==='firm'?20000:8000;
+    if(S.cash<cost){ toast('Not enough cash to fund the move.',true); return; }
+    S.cash-=cost; finRec('exp','purchases',cost);
+    const odds = kind==='firm' ? Math.min(0.9, 0.55+0.06*(enf-4)+(partnered('nia')?0.15:0))
+                               : Math.min(0.85, 0.5+0.05*enf+(up('scanner')?0.1:0)+(partnered('nia')?0.1:0));
+    if(Math.random()<odds) rivalWin(kind); else rivalLose(kind);
+    chkAch();
   },
 
   /* ── Community ── */
@@ -1754,7 +1896,9 @@ const A = {
     let title="🏝️ The Gentleman's Exit",
         flavor='Papers signed. Assets legitimised. A villa on the Riviera, a knighthood pending, and not a single fingerprint anywhere.';
     const married=S._weddings&&Object.keys(S._weddings)[0];
-    if(S.family.length && S.stats.hits===0){ title='👨‍👩‍👧 Out, For Them';
+    if(S.rivalDefeated){ title='🔱 The Last Kingpin';
+      flavor='You didn\'t just retire — you left a throne no one dares sit in. Cornelius Vane is a cautionary tale told on the docks, and the city ran your way right up until the day you walked from it. There was never anyone left above you.'; }
+    else if(S.family.length && S.stats.hits===0){ title='👨‍👩‍👧 Out, For Them';
       flavor=`You never crossed the final line, and now you never will. ${person(married).name.split(' ')[0]} and the kids don't know the half of it — and they never need to. A quiet house by the sea, and every dinner at the table. This was always the point.`; }
     else if(S.trust>=100){ title='🕊️ The People\'s Champion';
       flavor='The estate throws a street party the day you "retire". Youth clubs, scholarships, the centre with your name on the wall — they\'ll never know where the money came from, and they\'d forgive you if they did. You didn\'t just take from the ends. You built something.'; }
@@ -2679,9 +2823,32 @@ function rStreet(){
   h+=`<div class="card"><h3>🕶️ Runners</h3><div class="sub">${d?`${d} runner${d>1?'s':''} moving product automatically at ${up('cellar')?90:80}% value (10:00–22:00).`:'No runners. Hire some in Crew to sell while you sleep.'}</div></div>`;
   return h;
 }
+function rivalCard(){
+  if(S.rivalDefeated){
+    return `<div class="card" style="border-left:3px solid var(--gold)">
+      <div class="rowline"><h3>${RIVAL.em} ${RIVAL.name}</h3><span class="spacer"></span><span class="pill" style="color:var(--gold)">👑 Broken</span></div>
+      <div class="sub">You beat Vane and took the docks. There's no one left above you — the city is yours.</div></div>`;
+  }
+  const tier=beefTier(S.beef), t=BEEF_TIERS[tier];
+  const barCol = S.beef>=75?'#e2635f' : S.beef>=45?'#e0a53a' : '#8a9a5b';
+  const trucedNow=truced();
+  let h=`<div class="card" style="border-left:3px solid ${trucedNow?'#6fa8dc':(S.beef>=75?'var(--red)':'#7a5a2a')}">
+    <div class="rowline"><h3>${RIVAL.em} ${RIVAL.name}</h3><span class="spacer"></span>
+      <span class="pill">${RIVAL.crew}</span></div>
+    <div class="sub">${trucedNow?`<b class="blue">Truce holds for ${S.trucedUntil-S.day} more day${S.trucedUntil-S.day!==1?'s':''}.</b> `:''}${t.desc}</div>
+    <div class="rowline" style="margin-top:6px"><span class="muted" style="font-size:11px;flex:0 0 74px">Beef · ${t.name}</span>
+      <span class="bar" style="flex:1;height:8px"><i style="width:${Math.round(S.beef)}%;background:${barCol}"></i></span>
+      <b style="flex:0 0 34px;text-align:right">${Math.round(S.beef)}</b></div>
+    ${(S.beef>0 && !trucedNow)?`<div class="offbtns" style="margin-top:8px">
+      <button onclick="A.tribute()" ${S.cash<5000?'disabled':''}>🤝 Send tribute · £5,000 <span class="muted">(-20 beef)</span></button></div>`:''}
+    <div class="sub" style="margin-top:6px;font-size:11.5px">Taking corners and ordering hits raises the beef; lying low and staying small cools it. Let it hit 100 and Vane comes for you.</div>
+  </div>`;
+  return h;
+}
 function turfSection(){
   const enf=countRole('enforcer');
-  let h=`<div class="subhint">Take corners with <b>Enforcers</b> (hire in Crew). Held turf pays street cash every dawn, but rivals try to take it back and every corner adds heat. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div>`;
+  let h=rivalCard();
+  h+=`<div class="subhint">Take corners with <b>Enforcers</b> (hire in Crew). Held turf pays street cash every dawn, but rivals try to take it back and every corner adds heat. You have <b>${enf}</b> enforcer${enf!==1?'s':''}.</div>`;
   for(const dd of DISTRICTS){
     const own=S.turf[dd.id];
     const weak=!!S.hits[dd.id];
@@ -2925,6 +3092,7 @@ function intro(){
     🎩 <b>Crew</b>: gardeners, runners, enforcers, fixers.<br>
     🏛️ <b>Business</b>: launder cash → bank, buy the lifestyle.<br>
     ❤️ <b>Life</b>: build relationships, start a family, give back to the estate.<br>
+    🎩 <b>${RIVAL.name}</b> runs the docks — the bigger you get, the harder he'll come. It ends in a showdown.<br>
     🏆 ${ACH.length} achievements. Your choices — clean or bloody, loved or feared — decide your ending.<br>
     🏝️ Bank ${fmt(EXIT_COST)} clean to win.</p>
     <div class="choices"><button class="gold" onclick="A.close()">Begin</button></div>`);
@@ -2983,6 +3151,11 @@ function parseSave(raw){
     if(s.lost===undefined) s.lost=false;
     if(s.brokeDays===undefined) s.brokeDays=0;
     if(!s.fin) s.fin={ today:{inc:{},exp:{}}, last:{inc:{},exp:{}}, life:{inc:{},exp:{}}, daysClosed:0, hist:[] };
+    if(s.beef===undefined) s.beef=0;
+    if(s.rivalDefeated===undefined) s.rivalDefeated=false;
+    if(s.trucedUntil===undefined) s.trucedUntil=0;
+    if(s.showdownSeen===undefined) s.showdownSeen=false;
+    if(s.stats && s.stats.retaliations===undefined) s.stats.retaliations=0;
     if(s.stats){ ['contracts','turf','hits','dates','crackdowns'].forEach(k=>{ if(s.stats[k]===undefined) s.stats[k]=0; }); }
     s.v=4;
     return s;
