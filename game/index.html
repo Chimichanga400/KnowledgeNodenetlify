@@ -215,6 +215,16 @@
   .statgrid{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px;}
   .statgrid .card{margin:0; text-align:center;}
   .statgrid .big{font-size:20px; font-weight:700; color:var(--gold);}
+  /* ── Books / P&L report ── */
+  .pnl-row{display:flex; align-items:center; gap:8px; padding:6px 0; font-size:13.5px;}
+  .pnl-row .pl-lbl{flex:0 0 128px; display:flex; gap:6px; align-items:center; white-space:nowrap;}
+  .pnl-row .pl-bar{flex:1; height:8px; border-radius:5px; background:#0a130d; overflow:hidden;}
+  .pnl-row .pl-bar i{display:block; height:100%; border-radius:5px;}
+  .pnl-row .pl-amt{flex:0 0 72px; text-align:right; font-variant-numeric:tabular-nums; font-weight:600;}
+  .pnl-row.lead .pl-lbl{color:var(--red);}
+  .pnl-net{display:flex; align-items:baseline; gap:8px; margin:2px 0 2px;}
+  .pnl-net .pn-big{font-size:26px; font-weight:800; font-variant-numeric:tabular-nums;}
+  .pnl-hint{font-size:12px; color:var(--ink-dim); margin-top:2px;}
   .achgrid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
   .ach{background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:9px 10px; font-size:12px;}
   .ach.got{border-color:var(--gold-dim); background:linear-gradient(180deg,#1c2f1c,#14251a);}
@@ -547,6 +557,7 @@ function freshState(){
     eventMin:null, eventDoneDay:0,
     ach:{}, log:[], won:false, lost:false, brokeDays:0,
     muted:false,
+    fin:{ today:{inc:{},exp:{}}, last:{inc:{},exp:{}}, life:{inc:{},exp:{}}, daysClosed:0, hist:[] },
     stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, crackdowns:0, daysPlayed:1},
     seenIntro:false,
   };
@@ -605,6 +616,24 @@ function toast(msg, bad){
 function addRep(n){ if(n>0) n*=repMult(); S.rep = Math.max(0, Math.round(S.rep+n)); }
 function addHeat(n){ S.heat = clamp(S.heat+n, 0, 100); if(S.heat>=100) bigRaid(); }
 function earnCash(n){ S.cash+=n; S.stats.earned+=n; }
+/* ── Books: categorised income/expense tracking ──────────────────── */
+// kind is 'inc' or 'exp'; records into today's tally + the lifetime tally.
+function finRec(kind,cat,amt){
+  amt=Math.round(amt); if(!amt || amt<0 || !S.fin) return;
+  const t=S.fin.today[kind], l=S.fin.life[kind];
+  t[cat]=(t[cat]||0)+amt; l[cat]=(l[cat]||0)+amt;
+}
+function finSum(obj){ let s=0; for(const k in obj) s+=obj[k]; return s; }
+// close the day's books at dawn: snapshot → "last night", push to history, reset
+function finClose(){
+  if(!S.fin) return;
+  const t=S.fin.today, inc=finSum(t.inc), exp=finSum(t.exp);
+  S.fin.last=t;
+  S.fin.hist.push({day:S.day, inc, exp, net:inc-exp});
+  if(S.fin.hist.length>14) S.fin.hist.shift();
+  S.fin.daysClosed++;
+  S.fin.today={inc:{},exp:{}};
+}
 
 /* ── Juice: particles & shake ────────────────────────────────────── */
 let lastX = innerWidth/2, lastY = innerHeight/2;
@@ -763,7 +792,7 @@ function harvestPlot(eid,p,auto,mult){
   p.strain=null; p.grown=0; p.water=0; p.dry=false;
   if(auto && est.autoReplant){
     if(S.seeds[sid]>0){ S.seeds[sid]--; p.strain=sid; p.water=100; }
-    else if(S.cash>=st.seed){ S.cash-=st.seed; p.strain=sid; p.water=100; }
+    else if(S.cash>=st.seed){ S.cash-=st.seed; finRec('exp','seeds',st.seed); p.strain=sid; p.water=100; }
   }
   if(!auto){
     const tag = mult>=1.4?' — ✨ <b>Perfect Trim!</b>' : mult>1?' — good trim' : '';
@@ -802,7 +831,7 @@ function sellToOffer(o){
   if(q<=0){ toast('You have none of that in stock.', true); return; }
   S.inv[o.strain]-=q;
   const total=q*o.price;
-  earnCash(total);
+  earnCash(total); finRec('inc','sales',total);
   addHeat(o.heat);
   addRep(Math.ceil(q/3));
   S.stats.sold+=q;
@@ -832,7 +861,7 @@ function deliverContract(id){
   if((S.inv[c.strain]||0)<c.qty){ toast('Not enough product in stock.',true); return; }
   S.inv[c.strain]-=c.qty;
   const pay=Math.round(c.qty*st.value*c.mult);
-  S.bank+=pay; S.stats.earned+=pay; S.stats.sold+=c.qty; S.stats.contracts++;
+  S.bank+=pay; S.stats.earned+=pay; S.stats.sold+=c.qty; S.stats.contracts++; finRec('inc','contracts',pay);
   addRep(Math.ceil(c.qty/2));
   S.contracts=S.contracts.filter(x=>x.id!==id);
   log(`Contract fulfilled: ${c.qty}× ${st.name} for ${fmt(pay)} clean.`);
@@ -856,7 +885,7 @@ function minuteDealers(){
     const q=Math.min(ri(1,3), S.inv[sid]);
     S.inv[sid]-=q;
     const total=Math.round(q*st.value*mkt(sid)*rate);
-    earnCash(total);
+    earnCash(total); finRec('inc','sales',total);
     addHeat(1);
     S.stats.sold+=q;
     log(`A runner moved ${q}× ${st.name} for ${fmt(total)}.`);
@@ -874,7 +903,7 @@ function settle(lielow){
   // wages (cash)
   const wages=S.staff.reduce((a,s)=>a+ROLES[s.role].wage,0);
   if(wages>0){
-    if(S.cash>=wages){ S.cash-=wages; notes.push(`Wages paid: ${fmt(wages)}`); }
+    if(S.cash>=wages){ S.cash-=wages; finRec('exp','wages',wages); notes.push(`Wages paid: ${fmt(wages)}`); }
     else{
       const q=S.staff.pop();
       addRep(-5);
@@ -885,8 +914,8 @@ function settle(lielow){
   let fees=0;
   for(const e of ESTATES){ if(S.estates[e.id]?.owned) fees+=e.fee; }
   if(fees>0){
-    if(S.bank>=fees){ S.bank-=fees; notes.push(`Lords' consideration: ${fmt(fees)} (bank)`); }
-    else if(S.cash>=fees*1.5){ S.cash-=Math.round(fees*1.5); addHeat(3);
+    if(S.bank>=fees){ S.bank-=fees; finRec('exp','rent',fees); notes.push(`Lords' consideration: ${fmt(fees)} (bank)`); }
+    else if(S.cash>=fees*1.5){ const paid=Math.round(fees*1.5); S.cash-=paid; finRec('exp','rent',paid); addHeat(3);
       notes.push(`Paid the lords in used notes: ${fmt(fees*1.5)}. They noticed. (+3 heat)`); }
     else { addHeat(8); addRep(-3); notes.push(`The lords went unpaid. Word spreads. (+8 heat, -3 rep)`); }
   }
@@ -895,7 +924,7 @@ function settle(lielow){
   if(cap>0 && S.cash>0){
     const amt=Math.min(S.cash,cap);
     const cleaned=Math.round(amt*0.9);
-    S.cash-=amt; S.bank+=cleaned; S.stats.laundered+=cleaned;
+    S.cash-=amt; S.bank+=cleaned; S.stats.laundered+=cleaned; finRec('exp','washfee',amt-cleaned);
     notes.push(`Fronts laundered ${fmt(amt)} → ${fmt(cleaned)} clean.`);
   }
   // turf income & rival pressure — skipped when lying low (corners shut for the night)
@@ -904,7 +933,7 @@ function settle(lielow){
     notes.push(`You kept the corners quiet overnight — no takings, no attention.`);
   } else if(held.length){
     const inc=held.reduce((a,d)=>a+d.income,0);
-    earnCash(inc);
+    earnCash(inc); finRec('inc','turf',inc);
     const turfHeat=held.reduce((a,d)=>a+d.str,0);   // heat scales with district strength
     S.heat=clamp(S.heat+turfHeat,0,100);
     notes.push(`Your corners kicked up ${fmt(inc)} street cash. (+${turfHeat} heat)`);
@@ -914,7 +943,7 @@ function settle(lielow){
     if(Math.random() < tbChance){
       const d=pick(held);
       if(countRole('enforcer')>=d.str){
-        addRep(5); S.cash=Math.max(0,S.cash-500);
+        addRep(5); const med=Math.min(500,S.cash); S.cash-=med; finRec('exp','fines',med);
         notes.push(`${d.crew} moved on ${d.name} — your enforcers held the line. (+5 rep, £500 in medical bills)`);
       } else {
         delete S.turf[d.id]; addRep(-8);
@@ -925,21 +954,21 @@ function settle(lielow){
   // community upkeep (cash) + trust decay drift toward investment level
   let upkeep=0; for(const c of COMMUNITY){ if(S.community[c.id]) upkeep+=c.upkeep; }
   if(upkeep>0){
-    if(S.cash>=upkeep){ S.cash-=upkeep; notes.push(`Community upkeep: ${fmt(upkeep)}.`); }
+    if(S.cash>=upkeep){ S.cash-=upkeep; finRec('exp','upkeep',upkeep); notes.push(`Community upkeep: ${fmt(upkeep)}.`); }
     else { addTrust(-8); notes.push(`Couldn't fund the community projects. Trust slips. (-8 trust)`); }
   }
   // family stipend (cash) — the cost, and the reason, to get out clean
   if(S.family.length){
     const keep=S.family.length*200;
-    if(S.cash>=keep){ S.cash-=keep; notes.push(`Family upkeep: ${fmt(keep)}.`); }
-    else if(S.bank>=keep){ S.bank-=keep; notes.push(`Family upkeep from the bank: ${fmt(keep)}.`); }
+    if(S.cash>=keep){ S.cash-=keep; finRec('exp','upkeep',keep); notes.push(`Family upkeep: ${fmt(keep)}.`); }
+    else if(S.bank>=keep){ S.bank-=keep; finRec('exp','upkeep',keep); notes.push(`Family upkeep from the bank: ${fmt(keep)}.`); }
     else { addTrust(-2); notes.push('Money was tight at home this week.'); }
   }
   // racehorse
   if(lux('horse')){
     const r=Math.random();
-    if(r<0.2){ const w=ri(1000,4000); S.bank+=w; S.stats.earned+=w; notes.push(`Liquid Asset romped home at Ascot: +${fmt(w)} (bank).`); }
-    else if(r<0.25){ S.cash=Math.max(0,S.cash-800); notes.push('Vet bill for Liquid Asset: £800. He regrets nothing.'); }
+    if(r<0.2){ const w=ri(1000,4000); S.bank+=w; S.stats.earned+=w; finRec('inc','windfalls',w); notes.push(`Liquid Asset romped home at Ascot: +${fmt(w)} (bank).`); }
+    else if(r<0.25){ const vet=Math.min(800,S.cash); S.cash-=vet; finRec('exp','upkeep',vet); notes.push('Vet bill for Liquid Asset: £800. He regrets nothing.'); }
   }
   // heat decay (fixers, penthouse, civilian partner, community trust) + lying-low bonus
   let cool=4 + countRole('fixer')*10 + (lux('pent')?3:0) + (partnered('flora')?2:0) + Math.floor(S.trust/25);
@@ -958,6 +987,8 @@ function settle(lielow){
   // raid check (gamekeepers reduce)
   const guardCut=1-0.2*Math.min(countRole('guard'),3);
   if(S.heat>=70 && Math.random()*100 < (S.heat-55)*1.5*guardCut) raid();
+  // close the day's books (income vs expenses) for the report
+  finClose();
   // schedule today's random event
   S.eventMin = (Math.random()<0.4) ? ri(10*60, 21*60) : null;
   // bankruptcy check — dead broke with nothing to sell, several dawns running
@@ -985,7 +1016,7 @@ function raid(){
   let seized=0;
   for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.4*sev); S.inv[k]-=take; seized+=take; }
   const fine=Math.round((500+S.day*80)*sev);
-  S.cash=Math.max(0,S.cash-fine);
+  const paidFine=Math.min(fine,S.cash); S.cash-=paidFine; finRec('exp','fines',paidFine);
   S.heat=45;
   const msg=`🚨 <b>RAID at ${e.name}!</b> ${plantsLost} plants destroyed, ${seized} units seized, ${fmt(fine)} in "fines".`
     + (countRole('barrister')?' Your barrister softened the blow.':'');
@@ -1004,7 +1035,7 @@ function bigRaid(){
   for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.75); S.inv[k]-=take; seized+=take; }
   for(const eid in S.estates){ for(const p of S.estates[eid].plots){ p.strain=null;p.grown=0;p.water=0;p.dry=false; } }
   const fine=Math.round(S.cash*0.3);
-  S.cash-=fine; S.heat=55;
+  S.cash-=fine; finRec('exp','fines',fine); S.heat=55;
   log(`MAJOR CRACKDOWN: every grow torched, ${seized} units and ${fmt(fine)} seized.`, true);
   chkAch();
   if(S.stats.crackdowns>=3){ gameOverBusted(); return; }
@@ -1412,7 +1443,7 @@ const A = {
   plant(eid,i,sid){
     const st=strain(sid);
     if(S.seeds[sid]>0) S.seeds[sid]--;
-    else if(S.cash>=st.seed) S.cash-=st.seed;
+    else if(S.cash>=st.seed){ S.cash-=st.seed; finRec('exp','seeds',st.seed); }
     else { toast('Not enough cash.',true); return; }
     const p=S.estates[eid].plots[i];
     p.strain=sid; p.grown=0; p.water=100; p.dry=false;
@@ -1423,7 +1454,7 @@ const A = {
   buyEstate(id){
     const e=ESTATES.find(x=>x.id===id);
     if(S.bank<e.cost){ toast('Lords only accept clean bank money.',true); return; }
-    S.bank-=e.cost;
+    S.bank-=e.cost; finRec('exp','purchases',e.cost);
     S.estates[id]={owned:true, autoReplant:false, plots:mkPlots(e.plots+(up('greenhouse')?2:0))};
     log(`Leased ${e.name} from ${e.lord}.`);
     toast(`🏛️ <b>${e.name}</b> is yours.`);
@@ -1435,7 +1466,7 @@ const A = {
     const r=ROLES[role];
     if(countRole(role)>=r.max){ toast(`You can't employ more ${r.name}s.`,true); return; }
     if(S.cash<r.hire){ toast('Not enough cash.',true); return; }
-    S.cash-=r.hire;
+    S.cash-=r.hire; finRec('exp','purchases',r.hire);
     const rec={role, name:pick(NAMES), estate:role==='gardener'?bestGardenEstate():null};
     S.staff.push(rec);
     log(`Hired ${r.name} ${rec.name}${rec.estate?` for ${ESTATES.find(e=>e.id===rec.estate).name}`:''}.`);
@@ -1459,7 +1490,7 @@ const A = {
   buyFront(id){
     const f=FRONTS.find(x=>x.id===id);
     if(S.cash<f.cost){ toast('Not enough cash.',true); return; }
-    S.cash-=f.cost; S.fronts[id]=true;
+    S.cash-=f.cost; finRec('exp','purchases',f.cost); S.fronts[id]=true;
     log(`Acquired ${f.name}. Laundering +${fmt(f.launder)}/day.`);
     toast(`${f.em} <b>${f.name}</b> acquired.`);
     render(); save();
@@ -1467,7 +1498,7 @@ const A = {
   buyUpgrade(id){
     const u=UPGRADES.find(x=>x.id===id);
     if(S.cash<u.cost){ toast('Not enough cash.',true); return; }
-    S.cash-=u.cost; S.upgrades[id]=true;
+    S.cash-=u.cost; finRec('exp','purchases',u.cost); S.upgrades[id]=true;
     if(id==='greenhouse'){
       for(const eid in S.estates){ if(S.estates[eid].owned){ S.estates[eid].plots.push({strain:null,grown:0,water:0,dry:false},{strain:null,grown:0,water:0,dry:false}); } }
     }
@@ -1500,6 +1531,7 @@ const A = {
     if(S.luxury[id]) return;
     if(l.cur==='bank'){ if(S.bank<l.cost){ toast('Not enough clean money — luxuries need receipts.',true); return; } S.bank-=l.cost; }
     else { if(S.cash<l.cost){ toast('Not enough cash.',true); return; } S.cash-=l.cost; }
+    finRec('exp','purchases',l.cost);
     S.luxury[id]=true;
     addRep(l.rep);
     log(`Acquired ${l.name}. (+${l.rep} rep)`);
@@ -1647,7 +1679,7 @@ const A = {
     const c=COMMUNITY.find(x=>x.id===id);
     if(S.community[id]) return;
     if(S.cash<c.cost){ toast('Not enough cash.',true); return; }
-    S.cash-=c.cost; S.community[id]=true;
+    S.cash-=c.cost; finRec('exp','purchases',c.cost); S.community[id]=true;
     addTrust(c.trust); addRepBase(Math.round(c.trust/2));
     log(`Invested in ${c.name}. (+${c.trust} community trust)`);
     toast(`${c.em} <b>${c.name}</b> is open. The estate notices. <span class="muted">+${c.trust} trust</span>`);
@@ -1668,7 +1700,7 @@ const A = {
     const cost=Math.round(300+S.heat*25);
     if(S.cash<cost){ toast('Not enough cash.',true); return; }
     if(S.heat<5){ toast('Heat is already negligible.',true); return; }
-    S.cash-=cost; addHeat(-20); S.stats.bribes++;
+    S.cash-=cost; finRec('exp','bribes',cost); addHeat(-20); S.stats.bribes++;
     log(`Bribe paid: ${fmt(cost)}, -20 heat.`);
     toast(`🤫 Palms greased. <b>-20 heat</b>.`);
     render(); save();
@@ -2786,10 +2818,56 @@ function communitySection(){
   return h;
 }
 
+// ── Books: the income/expense report ──
+const FIN_CATS={
+  sales:['🤝','Street sales'], turf:['🗺️','Turf income'], contracts:['📜','Contracts'], windfalls:['🎲','Windfalls'],
+  wages:['🎩','Crew wages'], rent:['🏛️','Estate rent'], upkeep:['🏘️','Upkeep'], washfee:['🧺','Laundering fee'],
+  seeds:['🌱','Seeds'], bribes:['🤫','Bribes'], fines:['🚨','Fines'], purchases:['🛒','Purchases'],
+};
+function booksSection(){
+  const f=S.fin, dc=f.daysClosed;
+  // averages per closed day (lifetime) — the truest "run rate"; fall back to last night before any dawn
+  const src = dc>0 ? {inc:f.life.inc, exp:f.life.exp, div:dc, label:`per day, averaged over ${dc} day${dc!==1?'s':''}`}
+                   : {inc:f.today.inc, exp:f.today.exp, div:1, label:'so far today — check back after dawn for daily averages'};
+  const per=(o)=>{ const r={}; for(const k in o) r[k]=o[k]/src.div; return r; };
+  const inc=per(src.inc), exp=per(src.exp);
+  const incTot=finSum(inc), expTot=finSum(exp), net=incTot-expTot;
+  const rows=(obj,color)=>{
+    const ents=Object.entries(obj).filter(([k,v])=>v>0.5).sort((a,b)=>b[1]-a[1]);
+    if(!ents.length) return '<div class="pnl-hint">Nothing recorded yet.</div>';
+    const max=ents[0][1];
+    return ents.map(([k,v],i)=>{ const c=FIN_CATS[k]||['•',k];
+      return `<div class="pnl-row${(color==='red'&&i===0)?' lead':''}">
+        <span class="pl-lbl">${c[0]} ${c[1]}${(color==='red'&&i===0)?' <span class="pill" style="padding:0 6px">biggest</span>':''}</span>
+        <span class="pl-bar"><i style="width:${Math.round(v/max*100)}%;background:${color==='red'?'linear-gradient(90deg,#c98a3a,#e2635f)':'linear-gradient(90deg,#3f9c62,#5fbf7f)'}"></i></span>
+        <span class="pl-amt ${color==='red'?'bad':'money'}">${fmt(v)}</span></div>`;
+    }).join('');
+  };
+  let h=`<div class="card">
+    <div class="pnl-net"><span class="pn-big ${net>=0?'money':'bad'}">${net>=0?'+':'−'}${fmt(Math.abs(net))}</span>
+      <span class="sub">net / day</span></div>
+    <div class="pnl-hint">${net>=0
+      ? `You're running a profit of about <b class="money">${fmt(net)}</b> a day. ${src.label}.`
+      : `You're bleeding about <b class="bad">${fmt(-net)}</b> a day — spending more than you bring in. ${src.label}.`}</div>
+  </div>`;
+  h+=`<div class="card"><h3 class="money">💷 Money In · ${fmt(incTot)}/day</h3><div style="margin-top:6px">${rows(inc,'green')}</div></div>`;
+  h+=`<div class="card"><h3 class="bad">💸 Money Out · ${fmt(expTot)}/day</h3><div style="margin-top:6px">${rows(exp,'red')}</div></div>`;
+  // last night's concrete figures + lifetime
+  const lastInc=finSum(f.last.inc), lastExp=finSum(f.last.exp);
+  const lifeInc=finSum(f.life.inc), lifeExp=finSum(f.life.exp);
+  h+=`<div class="statgrid">
+    <div class="card"><div class="big ${lastInc-lastExp>=0?'money':'bad'}">${lastInc-lastExp>=0?'+':'−'}${fmt(Math.abs(lastInc-lastExp))}</div><div class="sub">Last night's net</div></div>
+    <div class="card"><div class="big">${fmt(lifeInc)}</div><div class="sub">Earned (lifetime)</div></div>
+  </div>`;
+  h+=`<div class="pnl-hint" style="text-align:center;margin-top:8px">Laundering moves cash to the bank; only its 10% fee shows as an expense. One-off buys (estates, luxuries, hires) sit under Purchases.</div>`;
+  return h;
+}
 function rLedger(){
   const got=Object.keys(S.ach).length;
-  let h=segbar('ledger',[['stats','📊 Stats'],['ach','🏆 Awards',`${got}/${ACH.length}`],['log','📜 Log']]);
-  if(SUB.ledger==='ach'){
+  let h=segbar('ledger',[['stats','📊 Stats'],['books','💷 Books'],['ach','🏆 Awards',`${got}/${ACH.length}`],['log','📜 Log']]);
+  if(SUB.ledger==='books'){
+    h+=booksSection();
+  } else if(SUB.ledger==='ach'){
     h+=`<div class="card"><div class="achgrid">`+
       ACH.map(a=>`<div class="ach ${S.ach[a.id]?'got':'no'}"><span class="em">${a.em}</span> <b>${a.name}</b><br><span class="muted">${a.desc}</span></div>`).join('')
       +'</div></div>';
@@ -2892,6 +2970,7 @@ function parseSave(raw){
     if(s.muted===undefined) s.muted=false;
     if(s.lost===undefined) s.lost=false;
     if(s.brokeDays===undefined) s.brokeDays=0;
+    if(!s.fin) s.fin={ today:{inc:{},exp:{}}, last:{inc:{},exp:{}}, life:{inc:{},exp:{}}, daysClosed:0, hist:[] };
     if(s.stats){ ['contracts','turf','hits','dates','crackdowns'].forEach(k=>{ if(s.stats[k]===undefined) s.stats[k]=0; }); }
     s.v=4;
     return s;

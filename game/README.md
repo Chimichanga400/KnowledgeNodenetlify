@@ -30,6 +30,7 @@ saves automatically to your device.
 | 🚨 Heat | Above 70, dawn raids become likely. At 100, a major crackdown torches everything. Bribe, hire fixers, or lie low until dawn. **Three crackdowns and you're nicked** — game over, for real. |
 | 📉 Bankruptcy | Run out of cash *and* bank *and* anything left to sell for three dawns running, and the empire quietly runs out of road. Stakes are real on both ends. |
 | 👆 Tappable scenes | The isometric cellar, city and estate grounds aren't just decoration — tap a pot to water/plant/harvest it, tap a building to jump to it, tap a shop or turf flag to jump to that section, tap a crew member to see who they are. |
+| 💷 Books | Ledger → **Books** is a live income/expense report (P&L). It categorises every recurring flow — street sales, turf, contracts vs. wages, rent, upkeep, the 10% laundering fee, seeds, bribes, fines — into a net-per-day figure with bars, flagging your **biggest drain** so you can see exactly where the money leaks. |
 | 🎭 Events | 31 dilemmas — Gentlemen-style aristocratic capers plus a gang layer straight out of Top Boy/Power/Snowfall: torched vans, truce summits, snitches, witnesses, runners jumped, poaching, tribute demands. Choices have consequences. |
 | 🏆 Extras | 18 achievements, procedural sound effects (with a mute toggle), an animated title screen, and a living scenery panel: the sky cycles dawn→night with a moving sun and moon, stars come out, the manor's windows light up, and a police car rolls in when you're running hot. |
 
