@@ -1792,16 +1792,45 @@ function poly(ctx,pts,fill,stroke){
   if(fill){ ctx.fillStyle=fill; ctx.fill(); }
   if(stroke){ ctx.strokeStyle=stroke; ctx.lineWidth=1; ctx.stroke(); }
 }
-// draw an iso cuboid whose ground footprint is (gx,gy)..(gx+gw,gy+gd), height h px
+// vertical light→dark gradient down a face, for form-giving shading
+function vgrad(ctx,pts,top,bot){
+  let y0=1e9,y1=-1e9; for(const p of pts){ if(p[1]<y0)y0=p[1]; if(p[1]>y1)y1=p[1]; }
+  const g=ctx.createLinearGradient(0,y0,0,y1); g.addColorStop(0,top); g.addColorStop(1,bot);
+  poly(ctx,pts,g);
+}
+// soft elliptical contact shadow on the ground
+function softShadow(ctx,cx,cy,rx,ry,a){
+  const g=ctx.createRadialGradient(cx,cy,0,cx,cy,rx);
+  g.addColorStop(0,`rgba(0,0,0,${a||0.32})`); g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.save(); ctx.translate(cx,cy); ctx.scale(1,ry/rx); ctx.beginPath(); ctx.arc(0,0,rx,0,7); ctx.fillStyle=g; ctx.fill(); ctx.restore();
+}
+// draw an iso cuboid whose ground footprint is (gx,gy)..(gx+gw,gy+gd), height h px.
+// Faces are shaded with gradients + a consistent light: top brightest, right lit, left in shade.
 function isoBox(ctx,gx,gy,gw,gd,h,top,lft,rgt){
   const b=isoPt(gx+gw,gy), c=isoPt(gx+gw,gy+gd), d=isoPt(gx,gy+gd), a=isoPt(gx,gy);
   const A=[a[0],a[1]-h],B=[b[0],b[1]-h],C=[c[0],c[1]-h],D=[d[0],d[1]-h];
-  poly(ctx,[d,c,C,D],lft);      // front-left face
-  poly(ctx,[b,c,C,B],rgt);      // front-right face
-  poly(ctx,[A,B,C,D],top);      // roof/top
+  // some callers pass a transparent colour just to grab the corner coords — draw nothing then
+  if(top!=='rgba(0,0,0,0)'){
+    softShadow(ctx,(c[0]+d[0])/2+6,(c[1]+d[1])/2+3,(gw+gd)*10+10,(gw+gd)*5+5,0.22);
+    vgrad(ctx,[d,c,C,D], shade(lft,6), shade(lft,-16));   // front-left face (shaded)
+    vgrad(ctx,[b,c,C,B], shade(rgt,20), shade(rgt,-6));   // front-right face (lit)
+    vgrad(ctx,[A,B,C,D], shade(top,14), shade(top,-2));   // top (brightest)
+  }
   return {A,B,C,D,b,c,d};
 }
-function litWin(ctx,x,y,w,h,night){ ctx.fillStyle=night>0.4?'#ffd75e':'#1a2c20'; ctx.fillRect(x,y,w,h); }
+function litWin(ctx,x,y,w,h,night){
+  if(night>0.4){ softGlow(ctx,x+w/2,y+h/2,w*1.7,'rgba(255,222,140,'+(0.32*night).toFixed(2)+')');
+    ctx.fillStyle='#ffe08a'; } else ctx.fillStyle='#1a2c20';
+  ctx.fillRect(x,y,w,h);
+}
+// additive-ish soft glow blob (bloom)
+function softGlow(ctx,x,y,r,col){
+  const g=ctx.createRadialGradient(x,y,0,x,y,r);
+  g.addColorStop(0,col); g.addColorStop(1,col.replace(/[\d.]+\)$/,'0)'));
+  const pc=ctx.globalCompositeOperation; ctx.globalCompositeOperation='lighter';
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+  ctx.globalCompositeOperation=pc;
+}
 
 // Which estate is the "hero" HQ building (grandest owned)
 function heroEstateIdx(){
@@ -1971,8 +2000,8 @@ function drawPed(ctx,p,now){
   const sc=0.85+0.3*(p.t);                       // nearer street = slightly bigger
   const swing=Math.sin(now*7+p.ph)*2.2;
   const bob=Math.abs(Math.sin(now*7+p.ph))*1.2;
-  // shadow
-  ctx.fillStyle='rgba(0,0,0,.28)'; ctx.beginPath(); ctx.ellipse(x,y+1,6*sc,2.4*sc,0,0,7); ctx.fill();
+  // soft contact shadow
+  softShadow(ctx,x+2,y+1,7*sc,2.6*sc,0.3);
   const top=y-16*sc-bob;
   // legs
   ctx.strokeStyle='#14181c'; ctx.lineWidth=2*sc; ctx.beginPath();
@@ -2042,36 +2071,47 @@ function drawSky(ctx,night){
 // ── GROW scene: an underground grow room (a garden in a basement) ──
 function drawGardenPot(ctx,gx,gy,plot){
   const p=isoPt(gx,gy);
-  // pot
-  poly(ctx,[[p[0]-8,p[1]-6],[p[0]+8,p[1]-6],[p[0]+6,p[1]+4],[p[0]-6,p[1]+4]],'#5a3a22');
-  poly(ctx,[[p[0]-8,p[1]-7],[p[0]+8,p[1]-7],[p[0]+6,p[1]-5],[p[0]-6,p[1]-5]],'#6a4630');
-  poly(ctx,[[p[0]-6,p[1]-6],[p[0]+6,p[1]-6],[p[0]+5,p[1]-8],[p[0]-5,p[1]-8]],'#231710'); // soil
+  // contact shadow + pot with a rounded gradient body
+  softShadow(ctx,p[0],p[1]+3,12,5,0.28);
+  vgrad(ctx,[[p[0]-8,p[1]-6],[p[0]+8,p[1]-6],[p[0]+6,p[1]+4],[p[0]-6,p[1]+4]],'#6a4630','#3e2716');
+  poly(ctx,[[p[0]-8,p[1]-7],[p[0]+8,p[1]-7],[p[0]+6,p[1]-5],[p[0]-6,p[1]-5]],'#7a5238'); // rim
+  poly(ctx,[[p[0]-6,p[1]-6],[p[0]+6,p[1]-6],[p[0]+5,p[1]-8],[p[0]-5,p[1]-8]],'#1f140c'); // soil
   if(plot && plot.strain){
     const st=strain(plot.strain);
     const pct=Math.min(1, plot.grown/st.grow), ready=plot.grown>=st.grow;
     const dry=plot.water<=0 && !ready;
     const h=7+26*pct;
-    ctx.strokeStyle=dry?'#7a5c30':'#3f9c62'; ctx.lineWidth=2.2;
+    ctx.strokeStyle=dry?'#7a5c30':'#3f9c62'; ctx.lineWidth=2.2; ctx.lineCap='round';
     ctx.beginPath(); ctx.moveTo(p[0],p[1]-7); ctx.lineTo(p[0],p[1]-7-h); ctx.stroke();
-    const leaf=dry?'#9a7a44':'#5fbf7f';
     const pairs=Math.max(1,Math.ceil((ready?1:Math.max(pct,0.18))*3));
     for(let i=1;i<=pairs;i++){ const ly=p[1]-7-h*(i/(pairs+0.5)), lw=7-i*1.1;
-      ctx.fillStyle=leaf; ctx.beginPath(); ctx.ellipse(p[0]-lw*0.8,ly,lw,2.4,-0.4,0,7); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(p[0]+lw*0.8,ly,lw,2.4,0.4,0,7); ctx.fill(); }
-    if(ready){ ctx.fillStyle='#cfe07a'; ctx.beginPath(); ctx.arc(p[0],p[1]-9-h,3.4,0,7); ctx.fill();
+      leafBlade(ctx,p[0]-lw*0.8,ly,lw,-0.4,dry);
+      leafBlade(ctx,p[0]+lw*0.8,ly,lw,0.4,dry); }
+    if(ready){ softGlow(ctx,p[0],p[1]-9-h,16,'rgba(190,230,120,0.5)');
+      ctx.fillStyle='#cfe07a'; ctx.beginPath(); ctx.arc(p[0],p[1]-9-h,3.4,0,7); ctx.fill();
       ctx.font='9px sans-serif'; ctx.textAlign='center'; ctx.fillText('✨',p[0]+8,p[1]-10-h); ctx.textAlign='left'; }
   }
+}
+// a single leaf with a light-to-dark gradient and a midrib
+function leafBlade(ctx,x,y,lw,rot,dry){
+  const c0=dry?'#b39a5a':'#7fd89a', c1=dry?'#7a5c30':'#3f9c62';
+  const g=ctx.createLinearGradient(x-lw,y,x+lw,y); g.addColorStop(0,c1); g.addColorStop(0.5,c0); g.addColorStop(1,c1);
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.fillStyle=g;
+  ctx.beginPath(); ctx.ellipse(0,0,lw,2.5,0,0,7); ctx.fill();
+  ctx.strokeStyle='rgba(20,60,35,.5)'; ctx.lineWidth=0.6; ctx.beginPath(); ctx.moveTo(-lw,0); ctx.lineTo(lw,0); ctx.stroke();
+  ctx.restore();
 }
 function drawGrowLight(ctx,gx,gy,ceil){
   const p=isoPt(gx,gy), ly=p[1]-ceil;
   ctx.strokeStyle='#2a2f36'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(p[0]-6,ly-13); ctx.lineTo(p[0]-6,ly); ctx.moveTo(p[0]+6,ly-13); ctx.lineTo(p[0]+6,ly); ctx.stroke();
   // magenta grow-light cone to the floor
   const g=ctx.createLinearGradient(p[0],ly,p[0],p[1]);
-  g.addColorStop(0,'rgba(214,120,255,0.34)'); g.addColorStop(1,'rgba(214,120,255,0)');
+  g.addColorStop(0,'rgba(214,120,255,0.30)'); g.addColorStop(1,'rgba(214,120,255,0)');
   ctx.fillStyle=g; poly(ctx,[[p[0]-11,ly+2],[p[0]+11,ly+2],[p[0]+20,p[1]],[p[0]-20,p[1]]]);
-  // fixture + bright tube
+  // fixture + bright tube with bloom
   ctx.fillStyle='#1a1e24'; roundRect(ctx,p[0]-13,ly-5,26,6,1);
-  ctx.fillStyle='rgba(236,190,255,0.95)'; ctx.fillRect(p[0]-11,ly-1,22,2.5);
+  softGlow(ctx,p[0],ly,20,'rgba(236,190,255,0.55)');
+  ctx.fillStyle='rgba(244,214,255,0.98)'; ctx.fillRect(p[0]-11,ly-1,22,2.5);
 }
 function empDrawGarden(ctx,now){
   // no sky — it's a cellar
@@ -2114,6 +2154,7 @@ function empDrawGarden(ctx,now){
   // faint grow-light haze over everything
   ctx.fillStyle='rgba(150,70,180,0.06)'; ctx.fillRect(0,0,EMP_W,EMP_H);
   let growing=0, total=0; for(const p of plots){ total++; if(p.strain) growing++; }
+  postFX(ctx);
   ctx.fillStyle='rgba(240,236,214,.8)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
   ctx.fillText('The Cellar Grow', 12, EMP_H-12);
   ctx.textAlign='right'; ctx.fillText(`${growing}/${total} plots growing`, EMP_W-12, EMP_H-12);
@@ -2146,6 +2187,7 @@ function empDrawHouse(ctx,now){
   items.sort((a,b)=>a.y-b.y); for(const it of items) it.fn();
   if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${night*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
   const nCrew=S.staff.length;
+  postFX(ctx);
   ctx.fillStyle='rgba(240,236,214,.78)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
   ctx.fillText(`${ESTATES[tier].name} · your residence`, 12, EMP_H-12);
   ctx.textAlign='right'; ctx.fillText(`${nCrew} on the payroll · ${phaseStr()}`, EMP_W-12, EMP_H-12);
@@ -2194,8 +2236,9 @@ function empDrawCity(ctx,now){
 
   // war effects above everything
   warFx = warFx.filter(fx=>drawWar(ctx,fx,empDT,now));
-  // night vignette
+  // night vignette + cinematic vignette
   if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${night*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
+  postFX(ctx);
   // caption
   const nEst=owned.length;
   ctx.fillStyle='rgba(240,236,214,.75)'; ctx.font='12px Georgia, serif'; ctx.textAlign='left';
@@ -2204,12 +2247,26 @@ function empDrawCity(ctx,now){
   ctx.textAlign='left';
 }
 function mixNight(day, night,f){ return hexLerp(day,night,f); }
+// gentle cinematic vignette to seat the scene
+function postFX(ctx){
+  const g=ctx.createRadialGradient(EMP_W/2,EMP_H*0.44,EMP_H*0.34,EMP_W/2,EMP_H*0.5,EMP_W*0.72);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,0.36)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,EMP_W,EMP_H);
+}
 
 let empDT=0.016, sceneMode=null;
 // mode: 'city' (Street tab) or 'house' (Crew tab)
 function sceneStart(mode){
   const cv=$('sceneCanvas'); if(!cv) return;
+  // Size the backing store to the real displayed size × pixel density, then scale the
+  // logical 720-wide coordinate space to fit — crisp on both phones and desktop.
+  const cssW=(cv.getBoundingClientRect().width)||EMP_W;
+  const dpr=Math.max(1, Math.min(2.5, window.devicePixelRatio||1));
+  const bw=Math.round(cssW*dpr), bh=Math.round(cssW*(EMP_H/EMP_W)*dpr);
+  if(cv.width!==bw){ cv.width=bw; cv.height=bh; }
   const ctx=cv.getContext('2d');
+  const s=cv.width/EMP_W; ctx.setTransform(s,0,0,s,0,0);
+  ctx.lineJoin='round';
   sceneMode=mode;
   empBuildPeds(mode);
   if(mode==='city'){ const hadWar=warUnseen; warUnseen=false;
