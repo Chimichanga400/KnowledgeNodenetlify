@@ -259,7 +259,7 @@
   /* ── Isometric stage (Street = city, Crew = house) ── */
   #cityStage{margin:6px 0 2px;}
   #sceneCanvas{width:100%; height:auto; display:block; border-radius:var(--radius);
-    border:1px solid var(--line); background:#0c1a12;
+    border:1px solid var(--line); background:#0c1a12; cursor:pointer;
     box-shadow:0 6px 24px rgba(0,0,0,.45), 0 1px 0 #ffffff12 inset; touch-action:manipulation;}
 </style>
 </head>
@@ -545,9 +545,9 @@ function freshState(){
     offers:[], nextOfferId:1,
     contracts:[], nextContractId:1,
     eventMin:null, eventDoneDay:0,
-    ach:{}, log:[], won:false,
+    ach:{}, log:[], won:false, lost:false, brokeDays:0,
     muted:false,
-    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, daysPlayed:1},
+    stats:{earned:0, laundered:0, sold:0, harvests:0, raids:0, bribes:0, contracts:0, turf:0, hits:0, dates:0, crackdowns:0, daysPlayed:1},
     seenIntro:false,
   };
 }
@@ -960,6 +960,12 @@ function settle(lielow){
   if(S.heat>=70 && Math.random()*100 < (S.heat-55)*1.5*guardCut) raid();
   // schedule today's random event
   S.eventMin = (Math.random()<0.4) ? ri(10*60, 21*60) : null;
+  // bankruptcy check — dead broke with nothing to sell, several dawns running
+  if(S.cash<=0 && S.bank<=0 && invTotal()<=0){
+    S.brokeDays=(S.brokeDays||0)+1;
+    if(S.brokeDays>=3){ notes.forEach(n=>log(n)); gameOverBroke(); return; }
+    notes.push(`No cash, no bank, nothing to sell. ${3-S.brokeDays} more day${3-S.brokeDays!==1?'s':''} like this and it's over.`);
+  } else { S.brokeDays=0; }
   notes.forEach(n=>log(n));
   toast(`🌅 <b>Dawn, day ${S.day}.</b> ` + (notes[0]||''), false);
   chkAch();
@@ -992,7 +998,7 @@ function raid(){
 function bigRaid(){
   if(S._bigRaidLock) return; S._bigRaidLock=true;
   setTimeout(()=>{ S._bigRaidLock=false; },100);
-  S.stats.raids++;
+  S.stats.raids++; S.stats.crackdowns++;
   shake(); pushWar('hq');
   let seized=0;
   for(const k in S.inv){ const take=Math.floor(S.inv[k]*0.75); S.inv[k]-=take; seized+=take; }
@@ -1001,10 +1007,37 @@ function bigRaid(){
   S.cash-=fine; S.heat=55;
   log(`MAJOR CRACKDOWN: every grow torched, ${seized} units and ${fmt(fine)} seized.`, true);
   chkAch();
+  if(S.stats.crackdowns>=3){ gameOverBusted(); return; }
   showModal(`<h2>🚁 Major Crackdown</h2>
     <p>Heat hit 100. Helicopters over every estate. They torched <b>every plant</b>, seized <b>${seized} units</b> and ${fmt(fine)} in cash.</p>
-    <p class="muted">You kept your freedom — barely. Watch the heat bar.</p>
+    <p class="muted">You kept your freedom — barely. This is crackdown <b>${S.stats.crackdowns}/3</b> — a third one ends it. Watch the heat bar.</p>
     <div class="choices"><button onclick="A.close()">Start again, quietly</button></div>`);
+}
+/* ── Lose conditions ─────────────────────────────────────────────── */
+function gameOverBusted(){
+  S.lost=true; S.speed=0; S.stats.daysPlayed=S.day;
+  log('Arrested. Three major crackdowns was one too many.', true);
+  showModal(`<h2>🚔 Nicked</h2>
+    <p>Third crackdown, third strike. This time the door doesn't get kicked in — it gets kicked in <i>and</i> you're in the back of the van.
+    Whatever you were mid-deal on, someone else runs it now.</p>
+    <p class="muted">Every empire has a ceiling on luck. You found yours.</p>
+    <p><b>Busted on day ${S.day}.</b></p>
+    <p class="muted">Earned ${fmt(S.stats.earned)} · ${S.stats.sold} units sold · ${S.stats.turf} corners taken ·
+    ${Object.keys(S.ach).length}/${ACH.length} achievements.</p>
+    <div class="choices"><button class="gold" onclick="A.newGame(true)">New Empire</button></div>`);
+  save();
+}
+function gameOverBroke(){
+  S.lost=true; S.speed=0; S.stats.daysPlayed=S.day;
+  log('Bankrupt. No cash, no bank, nothing left to sell.', true);
+  showModal(`<h2>📉 Cleaned Out</h2>
+    <p>No cash in your pocket, nothing in the bank, nothing left in the pots to sell, and nobody left who'll front you a seed
+    on credit. The empire didn't get raided — it just quietly ran out of road.</p>
+    <p class="muted">Even a criminal enterprise needs working capital.</p>
+    <p><b>Broke on day ${S.day}.</b></p>
+    <p class="muted">Earned ${fmt(S.stats.earned)} · ${S.stats.sold} units sold · ${S.stats.harvests} harvests.</p>
+    <div class="choices"><button class="gold" onclick="A.newGame(true)">New Empire</button></div>`);
+  save();
 }
 
 /* ── Narrative events ────────────────────────────────────────────── */
@@ -1717,6 +1750,66 @@ const A = {
     localStorage.removeItem(SAVE_KEY);
     S=freshState(); rollMarket(); closeModal(); intro(); render();
   },
+
+  /* ── Save export / import ── */
+  exportSave(){
+    save();
+    const json=JSON.stringify(S);
+    const fname=`emerald-estates-day${S.day}.json`;
+    showModal(`<h2>⬇️ Export Save</h2>
+      <p class="muted">Your whole empire, as text. Download it as a file, or copy it and paste it somewhere safe — a notes app, an email to yourself. Bring it back any time with Import.</p>
+      <textarea id="exportText" readonly style="width:100%;height:110px;background:var(--panel2);color:var(--ink-dim);
+        border:1px solid var(--line);border-radius:8px;padding:8px;font-family:monospace;font-size:10.5px;" onclick="this.select()">${json}</textarea>
+      <div class="choices">
+        <button class="gold" onclick="A.downloadSave('${fname}')">⬇️ Download ${fname}</button>
+        <button onclick="A.copySave()">📋 Copy to Clipboard</button>
+        <button class="ghost" onclick="A.close()">Done</button>
+      </div>`);
+  },
+  downloadSave(fname){
+    const blob=new Blob([JSON.stringify(S)], {type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download=fname; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },1000);
+    toast('⬇️ Save file downloaded.');
+  },
+  copySave(){
+    const ta=$('exportText'); if(!ta) return;
+    ta.select(); ta.setSelectionRange(0,999999);
+    let ok=false;
+    try{ ok=document.execCommand('copy'); }catch(e){}
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(ta.value).then(()=>toast('📋 Copied to clipboard.')).catch(()=>{ if(!ok) toast('Select the text and copy manually.',true); });
+    } else if(ok){ toast('📋 Copied to clipboard.'); }
+    else toast('Select the text and copy manually.',true);
+  },
+  importSave(){
+    showModal(`<h2>⬆️ Import Save</h2>
+      <p class="muted">Paste a previously exported save below, or choose the file. This <b>replaces</b> your current empire — export first if you want to keep it.</p>
+      <input type="file" id="importFile" accept="application/json,.json" style="margin-bottom:8px;color:var(--ink-dim);"
+        onchange="A.readImportFile(this)"/>
+      <textarea id="importText" placeholder="Paste save JSON here…" style="width:100%;height:110px;background:var(--panel2);color:var(--ink);
+        border:1px solid var(--line);border-radius:8px;padding:8px;font-family:monospace;font-size:10.5px;"></textarea>
+      <div class="choices">
+        <button class="gold" onclick="A.doImport()">Load Save</button>
+        <button class="ghost" onclick="A.close()">Cancel</button>
+      </div>`);
+  },
+  readImportFile(input){
+    const f=input.files&&input.files[0]; if(!f) return;
+    const reader=new FileReader();
+    reader.onload=()=>{ const ta=$('importText'); if(ta) ta.value=reader.result; };
+    reader.readAsText(f);
+  },
+  doImport(){
+    const ta=$('importText'); const text=ta?ta.value.trim():'';
+    if(!text){ toast('Paste or choose a save first.',true); return; }
+    const parsed=parseSave(text);
+    if(!parsed){ toast("That doesn't look like a valid Emerald Estates save.",true); return; }
+    if(!confirm('Replace your current empire with this imported save?')) return;
+    S=parsed; closeModal(); render(); save();
+    toast(`⬆️ Save imported — Day ${S.day}, ${fmt(S.cash)} cash.`);
+  },
 };
 window.A=A;
 
@@ -1809,6 +1902,23 @@ const EMP_W=720, EMP_H=430;
 const TW=30, TH=15;                 // iso tile half-width / half-height
 const ORIGIN_X=EMP_W/2, ORIGIN_Y=96; // where grid (0,0) lands
 let empRAF=null, peds=[], warFx=[], warUnseen=false, empRoadPts=null;
+/* ── Tappable scenes: hit-testing for the isometric canvas ──────────
+   Each draw call rebuilds a fresh list of clickable regions in logical
+   canvas-space coords; a single click listener (bound once, see boot)
+   hit-tests against it and fires the nearest region's action. */
+let SCENE_HOT=[];
+function resetHot(){ SCENE_HOT=[]; }
+function registerHot(x,y,r,onTap,label){ SCENE_HOT.push({x,y,r,onTap,label}); }
+function registerHotGrid(gx,gy,r,onTap,label){ const p=isoPt(gx,gy); registerHot(p[0],p[1],r,onTap,label); }
+function sceneClick(e){
+  const cv=$('sceneCanvas'); if(!cv || SCENE_HOT.length===0) return;
+  const r=cv.getBoundingClientRect();
+  const cx=(e.clientX-r.left)*(EMP_W/r.width), cy=(e.clientY-r.top)*(EMP_H/r.height);
+  let best=null, bestD=1e9;
+  for(const h of SCENE_HOT){ const dx=cx-h.x, dy=cy-h.y, d=Math.hypot(dx,dy);
+    if(d<=h.r && d<bestD){ bestD=d; best=h; } }
+  if(best) best.onTap();
+}
 function isoPt(gx,gy){ return [ORIGIN_X+(gx-gy)*TW, ORIGIN_Y+(gx+gy)*TH]; }
 function poly(ctx,pts,fill,stroke){
   ctx.beginPath(); ctx.moveTo(pts[0][0],pts[0][1]);
@@ -2000,7 +2110,7 @@ function empBuildPeds(mode){
     const central=pd=>{ pd.path='ring'; pd.cx=3.9; pd.cy=3.9; pd.r=1.0+Math.random()*1.2; pd.asp=0.2+Math.random()*0.25; return pd; };
     for(const s of S.staff){ const t=({dealer:'runner',enforcer:'enforcer',gardener:'gardener',
       fixer:'civ',botanist:'gardener',guard:'enforcer',barrister:'civ'})[s.role]||'civ';
-      const pd=central(mkPed(t)); pd.name=s.name; peds.push(pd); }
+      const pd=central(mkPed(t)); pd.name=s.name; pd.roleLabel=ROLES[s.role].name; pd.roleEm=ROLES[s.role].em; peds.push(pd); }
     for(let i=0;i<2;i++) peds.push(central(mkPed('civ')));  // a little life
     return;
   }
@@ -2174,35 +2284,41 @@ function empDrawGarden(ctx,now){
   // no sky — it's a cellar
   ctx.fillStyle='#0a0d0b'; ctx.fillRect(0,0,EMP_W,EMP_H);
   const H=70;
-  const A=isoPt(-0.4,-0.4),B=isoPt(6.4,-0.4),C=isoPt(6.4,5.4),D=isoPt(-0.4,5.4);
+  // NB: named wA/wB/wC/wD (not A/B/C/D) — a bare `A` here would shadow the
+  // global `A` actions object for the rest of this function, breaking any
+  // A.xyz(...) call in a closure defined below (e.g. the tappable pots).
+  const wA=isoPt(-0.4,-0.4),wB=isoPt(6.4,-0.4),wC=isoPt(6.4,5.4),wD=isoPt(-0.4,5.4);
   // floor
-  poly(ctx,[A,B,C,D],'#211d18');
+  poly(ctx,[wA,wB,wC,wD],'#211d18');
   ctx.strokeStyle='rgba(255,255,255,0.03)'; ctx.lineWidth=1;
   for(let i=0;i<=6;i++){ const a=isoPt(i,-0.4),b=isoPt(i,5.4); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
   for(let j=0;j<=5;j++){ const a=isoPt(-0.4,j),b=isoPt(6.4,j); ctx.beginPath(); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); ctx.stroke(); }
   // back walls (brick)
-  poly(ctx,[A,B,[B[0],B[1]-H],[A[0],A[1]-H]],'#241f1a');
-  poly(ctx,[A,D,[D[0],D[1]-H],[A[0],A[1]-H]],'#1d1914');
+  poly(ctx,[wA,wB,[wB[0],wB[1]-H],[wA[0],wA[1]-H]],'#241f1a');
+  poly(ctx,[wA,wD,[wD[0],wD[1]-H],[wA[0],wA[1]-H]],'#1d1914');
   ctx.strokeStyle='rgba(0,0,0,0.28)'; ctx.lineWidth=1;
   for(let k=1;k<5;k++){ // brick courses on right wall
-    const y=-k*(H/5); ctx.beginPath(); ctx.moveTo(A[0],A[1]+y); ctx.lineTo(B[0],B[1]+y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(A[0],A[1]+y); ctx.lineTo(D[0],D[1]+y); ctx.stroke(); }
+    const y=-k*(H/5); ctx.beginPath(); ctx.moveTo(wA[0],wA[1]+y); ctx.lineTo(wB[0],wB[1]+y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(wA[0],wA[1]+y); ctx.lineTo(wD[0],wD[1]+y); ctx.stroke(); }
   // ducting + a small barrel along the back
-  ctx.fillStyle='#33383f'; roundRect(ctx,A[0]-2,A[1]-H+6,120,7,3);
+  ctx.fillStyle='#33383f'; roundRect(ctx,wA[0]-2,wA[1]-H+6,120,7,3);
   const bar=isoPt(0.5,0.5); ctx.fillStyle='#2b3a4a'; roundRect(ctx,bar[0]-8,bar[1]-24,16,20,3); ctx.fillStyle='#3a4c5e'; ctx.fillRect(bar[0]-8,bar[1]-20,16,3);
 
   // collect drawables (lights behind pots), sorted by depth
+  resetHot();
   const items=[];
   const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
-  // gather this empire's plots to fill the pots
-  const plots=[];
-  for(const id in S.estates){ const est=S.estates[id]; if(!est.owned) continue; for(const p of est.plots) plots.push(p); }
+  // gather this empire's plots to fill the pots, keeping eid/index refs so pots are tappable
+  const plots=[], plotRefs=[];
+  for(const id in S.estates){ const est=S.estates[id]; if(!est.owned) continue;
+    est.plots.forEach((p,i)=>{ plots.push(p); plotRefs.push({eid:id,i}); }); }
   const cols=4, rows=3; let idx=0;
   for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
     const gx=0.9+c*1.35, gy=1.0+r*1.35;
     push(gx,gy-0.4, ((gx,gy)=>()=>drawGrowLight(ctx,gx,gy,H-6))(gx,gy));   // light above
-    const plot=plots[idx++];
+    const plot=plots[idx], ref=plotRefs[idx]; idx++;
     push(gx,gy, ((gx,gy,plot)=>()=>drawGardenPot(ctx,gx,gy,plot))(gx,gy,plot));
+    if(ref) registerHotGrid(gx,gy,17, ()=>A.plot(ref.eid,ref.i), 'Tap: water / plant / harvest');
   }
   // gardener(s)
   for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
@@ -2238,19 +2354,24 @@ function empDrawHouse(ctx,now){
   ctx.strokeStyle=pc; ctx.lineWidth=8; ctx.lineCap='round';
   [2.4,4.5,6.6].forEach(L=>{ let a=isoPt(0.4,L),b=isoPt(8.6,L); ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
     a=isoPt(L,0.4);b=isoPt(L,8.6); ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke(); });
+  resetHot();
   const items=[];
   const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
   // every owned estate, placed on the grounds; the grandest flies the flag
   const owned=[]; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) owned.push(i); });
   const hero=heroEstateIdx();
   owned.forEach((tier,i)=>{ const slot=ESTATE_SLOTS[i]||ESTATE_SLOTS[i%8]; const bx=slot[0], by=slot[1];
-    push(bx+1.4,by+1.2, ()=>drawBuilding(ctx,tier,bx,by,night,tier===hero)); });
+    push(bx+1.4,by+1.2, ()=>drawBuilding(ctx,tier,bx,by,night,tier===hero));
+    registerHotGrid(bx+1.4,by+1.2,28, ()=>A.tab('grow'), `Go to ${ESTATES[tier].name}`); });
   // dressing: lamps in the courtyard, trees at the corners, your car
   [[3.9,3.9],[2.4,4.5],[6.6,4.5],[4.5,2.4],[4.5,6.6]].forEach(([gx,gy])=> push(gx,gy,()=>drawLamp(ctx,gx,gy,night)));
   [[8.4,3.9],[0.5,4.6]].forEach(([gx,gy])=> push(gx,gy,()=>drawTree(ctx,gx,gy)));
-  if(lux('motor')) push(3.9,4.9,()=>drawCar(ctx,3.9,4.9));
-  // crew figures mill about the central courtyard
-  for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
+  if(lux('motor')){ push(3.9,4.9,()=>drawCar(ctx,3.9,4.9));
+    registerHotGrid(3.9,4.9,14, ()=>toast('🏎️ Your Vintage Jaguar. It has never once broken down at an inconvenient moment.'), 'Your car'); }
+  // crew figures mill about the central courtyard — tap one to see who they are
+  for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)});
+    if(p.name){ const nm=p.name, rl=p.roleLabel, em=p.roleEm;
+      registerHot(pp[0],pp[1],11, ()=>toast(`${em} <b>${nm}</b> — ${rl}`), nm); } }
   items.sort((a,b)=>a.y-b.y); for(const it of items) it.fn();
   if(night>0.3){ ctx.fillStyle=`rgba(6,10,20,${night*0.34})`; ctx.fillRect(0,0,EMP_W,EMP_H); }
   postFX(ctx);
@@ -2277,25 +2398,31 @@ function empDrawCity(ctx,now){
   ctx.setLineDash([]);
 
   // collect every drawable with a depth (front-base screen-y), then paint back→front
+  resetHot();
   const items=[];
   const push=(gx,gy,fn)=>items.push({y:isoPt(gx,gy)[1], fn});
   // estates (grandest centre) + generic filler = a whole city
   const owned=[]; ESTATES.forEach((e,i)=>{ if(S.estates[e.id]?.owned) owned.push(i); }); owned.sort((a,b)=>b-a);
   CITY_BLOCKS.forEach((blk,bi)=>{ const bx=blk[0]*3+1.15, by=blk[1]*3+1.15;
     if(bi<owned.length){ const tier=owned[bi], isHome=(bi===0);
-      push(bx+1.5,by+1.3, ()=>drawBuilding(ctx,tier,bx,by,night,isHome)); }
+      push(bx+1.5,by+1.3, ()=>drawBuilding(ctx,tier,bx,by,night,isHome));
+      registerHotGrid(bx+1.5,by+1.3,26, ()=>A.tab('grow'), `Go to ${ESTATES[tier].name}`); }
     else { const seed=blk[0]*7+blk[1]*3+3; push(bx+1.4,by+1.2, ()=>drawGeneric(ctx,seed,bx,by,night)); }
   });
   // front-business shops as a market row on the front avenue
   FRONTS.filter(f=>S.fronts[f.id]).forEach((f,i)=>{ const gx=0.6+i*1.25, gy=8.9;
-    push(gx+0.8,gy+0.7, ()=>drawShop(ctx,f,gx,gy,i,night)); });
+    push(gx+0.8,gy+0.7, ()=>drawShop(ctx,f,gx,gy,i,night));
+    registerHotGrid(gx+0.5,gy+0.5,17, ()=>{ A.tab('biz'); A.sub('biz','fronts'); }, `Go to ${f.name}`); });
   // props
   [[0.2,3],[3,0.2],[6,0.2],[9.2,6]].forEach(([gx,gy],i)=> push(gx,gy,()=>drawTree(ctx,gx,gy)));
   [[3,3],[6,3],[3,6],[6,6]].forEach(([gx,gy])=> push(gx,gy,()=>drawLamp(ctx,gx,gy,night)));
-  if(lux('motor')) push(3,4.5,()=>drawCar(ctx,3,4.5));
-  if(lux('boat'))  push(9.3,9.3,()=>drawBoat(ctx,9.3,9.3));
-  // turf banners at inner intersections — green for each district you hold
-  [[3,3],[6,3],[3,6],[6,6],[9,9]].forEach(([gx,gy],i)=> push(gx+0.05,gy+0.05,()=>drawTurfFlag(ctx,gx,gy,i<ownedTurf().length)));
+  if(lux('motor')){ push(3,4.5,()=>drawCar(ctx,3,4.5));
+    registerHotGrid(3,4.5,14, ()=>toast('🏎️ Your Vintage Jaguar, parked exactly where you left it.'), 'Your car'); }
+  if(lux('boat')){ push(9.3,9.3,()=>drawBoat(ctx,9.3,9.3));
+    registerHotGrid(9.3,9.3,16, ()=>toast('🛥️ "The Sea Duchess" — fuelled and ready whenever you are.'), 'Your boat'); }
+  // turf banners at inner intersections — tap any flag to jump to the Turf tab
+  [[3,3],[6,3],[3,6],[6,6],[9,9]].forEach(([gx,gy],i)=>{ push(gx+0.05,gy+0.05,()=>drawTurfFlag(ctx,gx,gy,i<ownedTurf().length));
+    registerHotGrid(gx,gy,15, ()=>A.sub('street','turf'), 'Go to Turf'); });
   // pedestrians
   for(const p of peds){ const pp=pedPos(p); items.push({y:pp[1], fn:()=>drawPed(ctx,p,now)}); }
   // paint
@@ -2426,7 +2553,7 @@ function estateArtHTML(e, locked){
 }
 
 function rGrow(){
-  let h='';
+  let h='<div class="subhint">👆 Tap a pot in the cellar above — plant, water, or harvest without scrolling down.</div>';
   for(const e of ESTATES){
     const owned=S.estates[e.id]?.owned;
     if(owned){
@@ -2473,6 +2600,7 @@ function rStreet(){
   let h=segbar('street',[['deals','🤝 Deals',nOff||null],['turf','🗺️ Turf',`${nTurf}/${DISTRICTS.length}`]]);
   if(SUB.street==='turf'){ return h+turfSection(); }
   // ── Deals ──
+  h+='<div class="subhint">👆 Tap a building in the city above to jump straight to it — estates to Grow, shops to Business, flags to Turf.</div>';
   h+='<div class="card"><h3>📦 Inventory & Market</h3><div class="sub">Prices shift every dawn. Sell into a hot market.</div>';
   const keys=Object.keys(S.inv).filter(k=>S.inv[k]>0);
   h+= keys.length ? keys.map(k=>{const st=strain(k); const m=mkt(k);
@@ -2669,9 +2797,15 @@ function rLedger(){
     h+='<div class="card"><h3>📜 The Ledger</h3><div class="loglist">'+
       (S.log.length?S.log.map(l=>`<div>${l.bad?'⚠️ ':''}<b>${l.t}</b> — ${l.msg}</div>`).join(''):'<div>Nothing yet. Get to work.</div>')+
       '</div></div>';
-    h+=`<div class="card"><div class="rowline"><h3>💾 Save</h3><span class="spacer"></span>
+    h+=`<div class="card"><h3>💾 Backup</h3>
+      <div class="sub">Progress autosaves to this device every few seconds — but that's only this device, this browser. Export a copy to keep it safe or move it elsewhere.</div>
+      <div class="offbtns" style="margin-top:9px">
+        <button class="gold" onclick="A.exportSave()">⬇️ Export Save</button>
+        <button onclick="A.importSave()">⬆️ Import Save</button>
+      </div></div>`;
+    h+=`<div class="card"><div class="rowline"><h3>⚠️ Reset</h3><span class="spacer"></span>
       <button class="danger" onclick="A.newGame()">New Game</button></div>
-      <div class="sub">Progress autosaves to this device every few seconds. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
+      <div class="sub">Wipes this device's save and starts over. Export first if you want it back. Emerald Estates is a work of fiction — a satirical management game inspired by TV capers.</div></div>`;
   } else {
     const st=S.stats;
     h+=`<div class="statgrid">
@@ -2709,7 +2843,7 @@ function intro(){
 /* ── Main loop ───────────────────────────────────────────────────── */
 const SPEEDS={0:0,1:1,2:2,3:4};
 function tick(){
-  if(!S || S.won){ if(S) renderHUD(); return; }
+  if(!S || S.won || S.lost){ if(S) renderHUD(); return; }
   if(modalOpen) return;
   const t=$('title'); if(t && t.style.display!=='none') return;
   const rate=SPEEDS[S.speed]||0;
@@ -2732,9 +2866,10 @@ function tick(){
 
 /* ── Save / load ─────────────────────────────────────────────────── */
 function save(){ try{ localStorage.setItem(SAVE_KEY, JSON.stringify(S)); }catch(e){} }
-function load(){
+// Parses+migrates a raw save string from any source (localStorage or an imported file).
+// Shared by load() and A.doImport() so imported saves get exactly the same treatment.
+function parseSave(raw){
   try{
-    const raw=localStorage.getItem(SAVE_KEY);
     if(!raw) return null;
     const s=JSON.parse(raw);
     if(!s || s.v<1 || s.v>4) return null;
@@ -2755,12 +2890,15 @@ function load(){
     if(!s.family) s.family=[];
     if(!s.hits) s.hits={};
     if(s.muted===undefined) s.muted=false;
-    if(s.stats){ ['contracts','turf','hits','dates'].forEach(k=>{ if(s.stats[k]===undefined) s.stats[k]=0; }); }
+    if(s.lost===undefined) s.lost=false;
+    if(s.brokeDays===undefined) s.brokeDays=0;
+    if(s.stats){ ['contracts','turf','hits','dates','crackdowns'].forEach(k=>{ if(s.stats[k]===undefined) s.stats[k]=0; }); }
     s.v=4;
     return s;
   }catch(e){}
   return null;
 }
+function load(){ return parseSave(localStorage.getItem(SAVE_KEY)); }
 
 /* ── Boot ────────────────────────────────────────────────────────── */
 const hadSave = !!localStorage.getItem(SAVE_KEY);
@@ -2777,6 +2915,8 @@ window.addEventListener('visibilitychange', ()=>{
 });
 // first user gesture unlocks audio on mobile
 document.addEventListener('pointerdown', audioInit, {once:true});
+// the scene canvas is a single persistent element, so bind its tap handler once
+if($('sceneCanvas')) $('sceneCanvas').addEventListener('click', sceneClick);
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('sw.js', {scope:'./'}).catch(()=>{});
 }
