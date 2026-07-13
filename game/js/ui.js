@@ -2,12 +2,13 @@
 import {
   state, aliveCrew, aboardCrew, atStation, shieldMax, currentSystem,
   currentPlanet, fuelCost, currentDay, onLog,
+  shipClass, stationCap, crewCapacity, roomsOf,
 } from './state.js';
 import { combat } from './combat.js';
 import {
   SYSTEMS_DEF, STATIONS, ROLE_ICON, PLANET_TYPES, fmt,
   OUTPOST_COST, OUTPOST_HAB_MIN, COLONY_COST, COLONY_HAB_MIN, COLONY_CREW_MIN,
-  DAY_SECONDS,
+  SHIP_CLASSES, ROOM_TYPES,
 } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,7 @@ export function initUI(actions, selection) {
   A = actions;
   sel = selection;
   $('btn-galaxy').onclick = () => A.openGalaxy();
+  $('btn-ship').onclick = () => A.openInterior();
   $('btn-crew').onclick = () => openCrewModal();
   $('btn-help').onclick = () => openHelp(false);
   $('btn-save').onclick = () => A.save();
@@ -84,8 +86,66 @@ export function renderContext() {
   const el = $('right-panel');
   if (state.view === 'combat') { el.innerHTML = combatPanel(); wireCombat(el); return; }
   if (state.view === 'galaxy') { el.innerHTML = galaxyPanel(); wireGalaxy(el); return; }
+  if (state.view === 'interior') { el.innerHTML = interiorPanel(); wireInterior(el); return; }
   el.innerHTML = systemPanel();
   wireSystem(el);
+}
+
+// ── Interior deck panel ──
+function findRoom(id) {
+  if (id === 'bridge') return { id, type: 'bridge' };
+  if (id === 'engine') return { id, type: 'engine' };
+  return state.ship.rooms.find((r) => r.id === id) || null;
+}
+
+function interiorPanel() {
+  const cls = shipClass();
+  let html = `<h2>${cls.name.toUpperCase()}</h2>
+    <div class="subtitle">${cls.kind} · deck plan</div>
+    <div class="kv"><span class="k">Rooms built</span><span class="v">${state.ship.rooms.length} / ${cls.cols * cls.rows}</span></div>
+    <div class="kv"><span class="k">Crew capacity</span><span class="v">${aliveCrew().filter((c) => c.status !== 'outpost').length} / ${crewCapacity()}</span></div>`;
+
+  const room = sel.room != null ? findRoom(sel.room) : null;
+  if (room) {
+    const def = ROOM_TYPES[room.type];
+    html += `<h3 style="margin-top:14px">${def.icon} ${def.label.toUpperCase()}</h3>`;
+    if (def.desc) html += `<div class="hint" style="margin-top:4px">${def.desc}</div>`;
+    if (def.station) {
+      const crew = atStation(def.station);
+      const cap = stationCap(def.station);
+      html += `<div class="kv"><span class="k">Station</span><span class="v">${STATIONS[def.station].label}</span></div>
+        <div class="kv"><span class="k">Manned</span><span class="v ${crew.length ? 'good' : 'warn'}">${crew.length}${cap < 99 ? ' / ' + cap : ''}</span></div>`;
+      html += crew.map((c) => `<div class="kv"><span class="k">${ROLE_ICON[c.role]} ${c.name}</span><span class="v">${Math.round(c.hp)}%</span></div>`).join('');
+    }
+    html += `<div class="actions"><button data-act="crew">👥 Assign crew</button></div>`;
+  } else if (sel.slot != null) {
+    html += `<h3 style="margin-top:14px">🔨 BUILD ROOM</h3>
+      <div class="hint" style="margin-top:4px">Choose what to construct in this empty compartment. You have <b>${fmt(state.resources.alloys)}</b> alloys.</div>
+      <div class="actions">` +
+      Object.entries(ROOM_TYPES).filter(([, d]) => !d.fixed).map(([type, d]) => `
+        <button data-build="${type}" ${state.resources.alloys < d.cost ? 'disabled' : ''}>${d.icon} ${d.label} — ${d.cost} 🔩
+        <small>${d.desc || ''}</small></button>`).join('') +
+      `</div>`;
+  } else {
+    html += `<div class="hint">Click a room to inspect its crew, or an empty <b>+ build</b> slot to construct a new room.
+      Crew figures walk to whichever station you assign them.<br><br>
+      Rooms unlock stations: each Gun Turret fits 2 gunners, each Medbay 2 medics, and so on.
+      Passive rooms (quarters, engineering, capacitors, cargo) grant their bonus just by existing.</div>`;
+  }
+  html += `<div class="actions"><button data-act="back">🪐 Return to bridge view</button></div>`;
+  return html;
+}
+
+function wireInterior(el) {
+  el.querySelectorAll('[data-build]').forEach((b) => {
+    b.onclick = () => A.buildRoom(sel.slot, b.dataset.build);
+  });
+  el.querySelectorAll('[data-act]').forEach((b) => {
+    b.onclick = () => {
+      if (b.dataset.act === 'crew') openCrewModal();
+      if (b.dataset.act === 'back') A.openSystem();
+    };
+  });
 }
 
 function galaxyPanel() {
@@ -261,14 +321,21 @@ function modal(html, { closable = true } = {}) {
 export function closeModal() {
   const root = $('modal-root');
   root.classList.add('hidden');
+  root.classList.remove('transparent');
   root.innerHTML = '';
 }
 
 export function openCrewModal() {
+  if (!state) return;
   const rows = state.crew.filter((c) => c.status !== 'dead').map((c) => {
     const away = c.status !== 'aboard';
-    const opts = Object.entries(STATIONS).map(([k, def]) =>
-      `<option value="${k}" ${c.station === k ? 'selected' : ''}>${def.label}${def.bonusRole === c.role ? ' ★' : ''}</option>`).join('');
+    const opts = Object.entries(STATIONS).map(([k, def]) => {
+      const cap = stationCap(k);
+      const here = atStation(k).length;
+      const full = c.station !== k && here >= cap;
+      const tag = cap === 0 ? ' (no room)' : full ? ' (full)' : '';
+      return `<option value="${k}" ${c.station === k ? 'selected' : ''} ${full || cap === 0 ? 'disabled' : ''}>${def.label}${def.bonusRole === c.role ? ' ★' : ''}${tag}</option>`;
+    }).join('');
     return `<tr class="${away ? 'away' : ''}">
       <td>${ROLE_ICON[c.role] || '•'} ${c.name}</td>
       <td><span class="rolechip">${c.role} ${'▮'.repeat(c.skill)}</span></td>
@@ -323,6 +390,46 @@ export function openOutpostModal() {
     if (ids.length < 2) { banner('SELECT AT LEAST 2 SETTLERS', true, 1600); return; }
     closeModal();
     A.buildOutpost(ids);
+  };
+}
+
+// ── Ship selection (new game) ──
+export function openShipSelect(defaultId = 'horizon') {
+  let chosen = defaultId;
+  const root = $('modal-root');
+  root.classList.remove('hidden');
+  root.classList.add('transparent');
+  root.onclick = null;
+  const cards = Object.entries(SHIP_CLASSES).map(([id, c]) => `
+    <div class="shipcard ${id === chosen ? 'sel' : ''}" data-ship="${id}">
+      <div class="shipname">${c.name}</div>
+      <div class="shipkind">${c.kind}</div>
+      <div class="shipstats">
+        <span>🛡 Hull ${c.hull}</span><span>🎯 Guns ×${c.weaponMult}</span>
+        <span>⛽ Jumps ×${c.fuelMult}</span><span>🚪 Slots ${c.cols * c.rows}</span>
+        <span>👥 Crew cap ${c.crewCap}</span><span>📦 Yield +${Math.round(c.yieldBonus * 100)}%</span>
+      </div>
+      <div class="shipdesc">${c.desc}</div>
+    </div>`).join('');
+  root.innerHTML = `<div class="shipselect">
+    <div class="sstitle"><h1>CHOOSE YOUR ARK</h1>
+      <p>Every hull flies the same mission — find a golden world — but each plays differently.</p></div>
+    <div class="shipcards">${cards}</div>
+    <div class="sslaunch"><button class="warn" data-launch>🚀 Launch the ${SHIP_CLASSES[chosen].name}</button></div>
+  </div>`;
+  const launchBtn = root.querySelector('[data-launch]');
+  root.querySelectorAll('[data-ship]').forEach((card) => {
+    card.onclick = () => {
+      chosen = card.dataset.ship;
+      root.querySelectorAll('.shipcard').forEach((c) => c.classList.toggle('sel', c === card));
+      launchBtn.textContent = `🚀 Launch the ${SHIP_CLASSES[chosen].name}`;
+      A.previewShip(chosen);
+    };
+  });
+  launchBtn.onclick = () => {
+    root.classList.remove('transparent');
+    closeModal();
+    A.chooseShip(chosen);
   };
 }
 

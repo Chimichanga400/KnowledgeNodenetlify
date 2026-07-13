@@ -1,7 +1,7 @@
 // ── Background simulation: runs once per second ─────────────────
 import {
   state, log, aliveCrew, aboardCrew, repairRate, medbayRate, hydroRate,
-  atStation, shieldMax,
+  shieldMax, roomsOf, yieldMult, crewCapacity,
 } from './state.js';
 import { DAY_SECONDS, FOOD_PER_CREW_DAY, randInt, makeRng, pick, clamp } from './data.js';
 
@@ -47,9 +47,12 @@ export function tick(inCombat) {
     const hurt = aboardCrew().filter((c) => c.hp < 100 && c.station !== 'medbay');
     hurt.slice(0, 3).forEach((c) => { c.hp = clamp(c.hp + heal, 0, 100); });
   }
-  // Natural slow recovery
+  // Natural slow recovery (crew quarters speed it up for off-duty crew)
   if (state.time % 5 === 0) {
-    aboardCrew().forEach((c) => { if (c.hp < 100) c.hp = clamp(c.hp + 0.5, 0, 100); });
+    const quartersBonus = roomsOf('quarters').length * 0.6;
+    aboardCrew().forEach((c) => {
+      if (c.hp < 100) c.hp = clamp(c.hp + 0.5 + (c.station === 'idle' ? quartersBonus : 0), 0, 100);
+    });
   }
 
   // ── Life support ──
@@ -111,10 +114,11 @@ export function resolveMission(m) {
   const team = state.crew.filter((c) => m.crewIds.includes(c.id) && c.status === 'mission');
   const skill = team.reduce((s, c) => s + c.skill * (c.role === 'Scientist' || c.role === 'Soldier' ? 1.5 : 1), 0);
 
+  const mult = yieldMult();
   const gain = {
-    alloys: Math.round(p.resources.alloys * (0.12 + rng() * 0.1) * (1 + skill * 0.06)),
-    fuel: Math.round(p.resources.fuel * (0.12 + rng() * 0.1) * (1 + skill * 0.06)),
-    food: Math.round(p.resources.food * (0.12 + rng() * 0.1) * (1 + skill * 0.06)),
+    alloys: Math.round(p.resources.alloys * (0.12 + rng() * 0.1) * (1 + skill * 0.06) * mult),
+    fuel: Math.round(p.resources.fuel * (0.12 + rng() * 0.1) * (1 + skill * 0.06) * mult),
+    food: Math.round(p.resources.food * (0.12 + rng() * 0.1) * (1 + skill * 0.06) * mult),
   };
   // Deplete the site a little
   p.resources.alloys = Math.max(0, p.resources.alloys - Math.ceil(gain.alloys / 2));
@@ -139,9 +143,10 @@ export function resolveMission(m) {
   });
   team.forEach((c) => { if (c.status === 'mission') { c.status = 'aboard'; c.station = 'idle'; } });
 
-  // Occasional stranded survivor joins the crew
+  // Occasional stranded survivor joins the crew (if there's a bunk free)
   let recruit = null;
-  if (rng() < 0.14 && p.habitability > 20) {
+  const shipPop = aliveCrew().filter((c) => c.status !== 'outpost').length;
+  if (rng() < 0.14 && p.habitability > 20 && shipPop < crewCapacity()) {
     const used = new Set(state.crew.map((c) => c.name));
     recruit = {
       id: state.nextId++,

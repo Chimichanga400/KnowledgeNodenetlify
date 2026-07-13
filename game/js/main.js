@@ -6,28 +6,39 @@ import { startCombat, updateCombat, setTarget, attemptFlee, combat } from './com
 import {
   state, newGame, loadGame, saveGame, clearSave, log,
   currentSystem, currentPlanet, fuelCost, aliveCrew, aboardCrew,
-  pilotBonus, shieldMax,
+  pilotBonus, shieldMax, atStation, stationCap,
 } from './state.js';
 import {
   clamp, makeRng, randInt, OUTPOST_COST, COLONY_COST, COLONY_HAB_MIN,
-  COLONY_CREW_MIN, OUTPOST_HAB_MIN, PLANET_TYPES,
+  COLONY_CREW_MIN, OUTPOST_HAB_MIN, PLANET_TYPES, ROOM_TYPES, SHIP_CLASSES,
 } from './data.js';
 
-const sel = { star: null };   // galaxy-map selection, shared with ui.js
+const sel = { star: null, room: null, slot: null };   // selections shared with ui.js
 
 // ── View switching ──
 function openGalaxy() {
-  if (combat.active) return;
+  if (!state || combat.active) return;
   state.view = 'galaxy';
   sel.star = state.loc.systemId;
+  sel.room = sel.slot = null;
   scene.showGalaxy(state.galaxy.systems, state.loc.systemId);
   ui.renderContext();
 }
 
 function openSystem() {
-  if (combat.active) return;
+  if (!state || combat.active) return;
   state.view = 'system';
+  sel.room = sel.slot = null;
   scene.showSystem(currentSystem(), state.loc.planetIndex ?? 0);
+  ui.renderContext();
+}
+
+function openInterior() {
+  if (!state) return;
+  if (combat.active) { ui.banner('NOT WHILE UNDER FIRE', true, 1500); return; }
+  state.view = 'interior';
+  sel.room = sel.slot = null;
+  scene.showInterior();
   ui.renderContext();
 }
 
@@ -171,12 +182,29 @@ function colonize() {
 
 function assign(crewId, station) {
   const c = state.crew.find((x) => x.id === crewId);
-  if (c && c.status === 'aboard') {
-    c.station = station;
-    log(`${c.name} → ${station === 'idle' ? 'off duty' : station.replace('repair:', 'repair bay: ')}.`, 'info');
-  }
+  if (!c || c.status !== 'aboard' || c.station === station) return;
+  const cap = stationCap(station);
+  if (cap === 0) { ui.banner('BUILD THAT ROOM FIRST', true, 1600); return; }
+  if (atStation(station).length >= cap) { ui.banner('STATION FULL', true, 1400); return; }
+  c.station = station;
+  log(`${c.name} → ${station === 'idle' ? 'off duty' : station.replace('repair:', 'repair bay: ')}.`, 'info');
   ui.renderTop(); ui.renderLeft();
-  if (combat.active) ui.renderContext();
+  if (combat.active || state.view === 'interior') ui.renderContext();
+}
+
+function buildRoom(slot, type) {
+  const def = ROOM_TYPES[type];
+  if (!def || def.fixed || slot == null) return;
+  if (state.resources.alloys < def.cost) return;
+  if (state.ship.rooms.some((r) => r.slot === slot)) return;
+  state.resources.alloys -= def.cost;
+  const room = { id: state.ship.nextRoomId++, type, slot };
+  state.ship.rooms.push(room);
+  log(`${def.icon} ${def.label} constructed (−${def.cost} alloys).`, 'good');
+  sel.slot = null;
+  sel.room = room.id;
+  scene.showInterior();
+  ui.renderAll();
 }
 
 function gameOver(reason) {
@@ -187,8 +215,18 @@ function gameOver(reason) {
 }
 
 function save() {
+  if (!state) return;
   if (saveGame()) ui.banner('PROGRESS SAVED', true, 1400);
   else ui.banner('SAVE FAILED', false, 1800);
+}
+
+function previewShip(classId) {
+  scene.showShowcase(classId);
+}
+
+function chooseShip(classId) {
+  newGame(Math.floor(Math.random() * 1e9), classId);
+  startVoyage(false);
 }
 
 function restart() {
@@ -199,13 +237,14 @@ function restart() {
 
 // ── Actions table handed to the UI ──
 const actions = {
-  openGalaxy, openSystem, selectPlanet, travel, scan, expedition, skim,
-  buildOutpost, colonize, assign, save,
+  openGalaxy, openSystem, openInterior, selectPlanet, travel, scan, expedition, skim,
+  buildOutpost, colonize, assign, save, buildRoom, previewShip, chooseShip,
   target: setTarget, flee: attemptFlee, newGame: restart,
 };
 
 // ── Scene click routing ──
 scene.setClickHandler((pick) => {
+  if (!state) return;
   if (pick.kind === 'star' && state.view === 'galaxy') {
     sel.star = pick.id;
     ui.renderContext();
@@ -213,6 +252,10 @@ scene.setClickHandler((pick) => {
     selectPlanet(pick.index);
   } else if (pick.kind === 'enemy' && combat.active) {
     setTarget(pick.id);
+  } else if (state.view === 'interior') {
+    if (pick.kind === 'room') { sel.room = pick.id; sel.slot = null; ui.renderContext(); }
+    else if (pick.kind === 'slot') { sel.slot = pick.slot; sel.room = null; ui.renderContext(); }
+    else if (pick.kind === 'crewfig') ui.openCrewModal();
   }
 });
 
@@ -228,14 +271,25 @@ function maybeAutosave(force) {
 
 // ── Boot & main loop ──
 function boot(fresh) {
-  const loaded = !fresh && loadGame();
-  if (!loaded) newGame();
-  sim.resetSim();
   ui.initUI(actions, sel);
+  const loaded = !fresh && loadGame();
+  if (!loaded) {
+    // New voyage: pick a ship first.
+    scene.showShowcase('horizon');
+    ui.openShipSelect('horizon');
+    return;
+  }
+  startVoyage(true);
+}
+
+function startVoyage(loaded) {
+  sim.resetSim();
+  scene.setShipClass(state.ship.classId);
+  const cls = SHIP_CLASSES[state.ship.classId];
   if (loaded) {
     log('Ship systems restored from the last checkpoint. Welcome back, Commander.', 'info');
   } else {
-    log('The ark Horizon drifts at the edge of the Heleus Anchor system. Sensors online.', 'info');
+    log(`The ${cls.kind.toLowerCase()} ${cls.name} drifts at the edge of the Heleus Anchor system. Sensors online.`, 'info');
     log('Objective: locate a golden world (habitability ≥ 85%) and found a colony.', 'warn');
   }
   state.view = 'system';

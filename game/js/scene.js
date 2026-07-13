@@ -1,12 +1,18 @@
 // ── Three.js rendering: views, models, effects ──────────────────
 import * as THREE from 'three';
 import { OrbitControls } from '../lib/OrbitControls.js';
-import { PLANET_TYPES, makeRng } from './data.js';
+import { PLANET_TYPES, ROOM_TYPES, SHIP_CLASSES, makeRng } from './data.js';
+import { state, atStation, aboardCrew } from './state.js';
 
 let renderer, scene, camera, controls;
 let starfield, nebulae = [];
 let viewGroup = null;           // contents of the current view
 let shipGroup = null;           // the player's ark (reused across views)
+let shipClassId = 'horizon';
+let viewName = 'none';          // galaxy | system | combat | interior | showcase
+let showcaseShip = null;
+const interiorFigs = new Map(); // crewId -> { grp }
+let interiorLayout = null;      // { cls, roomPos: Map(roomKey -> Vector3) }
 const effects = [];             // transient fx { obj, ttl, life, tick }
 const enemies = new Map();      // id -> { group, orbit }
 let clickHandler = null;
@@ -109,7 +115,7 @@ export function init(canvas) {
   scene.add(fill);
 
   buildStarfield();
-  shipGroup = buildShip();
+  shipGroup = buildShip(shipClassId);
 
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -165,8 +171,36 @@ function buildStarfield() {
   });
 }
 
-// ── The Ark ──
-function buildShip() {
+// ── Player ships ──
+function engineFlare(x, y, z, hex = 0x37e5ff, scale = 1.6) {
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture(hex), transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  flare.position.set(x, y, z);
+  flare.scale.setScalar(scale);
+  flare.name = 'engineflare';
+  return flare;
+}
+
+function buildShip(classId) {
+  const grp = {
+    horizon: buildArk, nighthawk: buildCorvette, atlas: buildHauler, vanguard: buildCruiser,
+  }[classId || 'horizon']();
+  grp.userData.pick = { kind: 'ship' };
+  return grp;
+}
+
+export function setShipClass(classId) {
+  shipClassId = classId;
+  const parent = shipGroup && shipGroup.parent;
+  if (parent) parent.remove(shipGroup);
+  shipGroup = buildShip(classId);
+  if (parent) parent.add(shipGroup);
+}
+
+// The classic ring-habitat ark
+function buildArk() {
   const grp = new THREE.Group();
   const hullMat = new THREE.MeshStandardMaterial({ color: 0xaebfd1, metalness: 0.4, roughness: 0.45 });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x5d7089, metalness: 0.45, roughness: 0.55 });
@@ -228,6 +262,168 @@ function buildShip() {
   return grp;
 }
 
+// Matte-black angular stealth corvette (twin railguns, swept wings)
+function buildCorvette() {
+  const grp = new THREE.Group();
+  const black = new THREE.MeshStandardMaterial({ color: 0x4a525e, metalness: 0.55, roughness: 0.4 });
+  const panel = new THREE.MeshStandardMaterial({ color: 0x343c48, metalness: 0.6, roughness: 0.48 });
+  const cyan = new THREE.MeshBasicMaterial({ color: 0x37e5ff });
+  const orange = new THREE.MeshBasicMaterial({ color: 0xff8c3a });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(6.4, 1.0, 2.6), black);
+  grp.add(body);
+  const spine = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.5, 1.2), panel);
+  spine.position.y = 0.7;
+  grp.add(spine);
+  // Flat diamond nose
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.35, 3.4, 4), black);
+  nose.rotation.z = -Math.PI / 2;
+  nose.rotation.x = Math.PI / 4;
+  nose.scale.y = 1; nose.scale.z = 0.38;
+  nose.position.set(4.7, 0, 0);
+  grp.add(nose);
+  // Cockpit slit
+  const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.22, 0.7), cyan);
+  cockpit.position.set(2.4, 0.62, 0);
+  grp.add(cockpit);
+  // Swept wings with orange tip lights
+  [-1, 1].forEach((s) => {
+    const wing = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.14, 2.1), panel);
+    wing.position.set(-1.6, 0, s * 2.1);
+    wing.rotation.y = s * 0.55;
+    grp.add(wing);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.18, 0.22), orange);
+    tip.position.set(-2.7, 0, s * 3.15);
+    grp.add(tip);
+    // Forward railguns
+    const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 4.4, 6), panel);
+    gun.rotation.z = Math.PI / 2;
+    gun.position.set(3.4, -0.25, s * 1.05);
+    grp.add(gun);
+    const muzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.4, 6), orange);
+    muzzle.rotation.z = Math.PI / 2;
+    muzzle.position.set(5.6, -0.25, s * 1.05);
+    grp.add(muzzle);
+    // Engines
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.16, 0.6, 8), cyan);
+    exhaust.rotation.z = Math.PI / 2;
+    exhaust.position.set(-3.4, 0, s * 0.75);
+    grp.add(exhaust);
+    grp.add(engineFlare(-3.9, 0, s * 0.75, 0x37e5ff, 1.3));
+  });
+  return grp;
+}
+
+// Long segmented industrial hauler with big glowing engine pods
+function buildHauler() {
+  const grp = new THREE.Group();
+  const frame = new THREE.MeshStandardMaterial({ color: 0x7d8794, metalness: 0.5, roughness: 0.55 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x4a5462, metalness: 0.55, roughness: 0.6 });
+  const blue = new THREE.MeshBasicMaterial({ color: 0x4db8ff });
+  const orange = new THREE.MeshBasicMaterial({ color: 0xff8c3a });
+
+  // Central spine
+  const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 11, 8), dark);
+  spine.rotation.z = Math.PI / 2;
+  grp.add(spine);
+  // Cargo segments
+  for (let i = 0; i < 4; i++) {
+    const x = 2.8 - i * 2.4;
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.2, 2.8), frame);
+    seg.position.x = x;
+    grp.add(seg);
+    // Greebles + accent lights
+    const g1 = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 0.5), dark);
+    g1.position.set(x + 0.5, 1.3, (i % 2 ? 0.7 : -0.7));
+    grp.add(g1);
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.3, 0.3), i % 2 ? orange : blue);
+    lamp.position.set(x, 0.3, 1.45);
+    grp.add(lamp);
+  }
+  // Command head with glowing window strip
+  const head = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.7, 2.2), frame);
+  head.position.x = 5.4;
+  grp.add(head);
+  const windows = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 1.7), blue);
+  windows.position.set(6.5, 0.35, 0);
+  grp.add(windows);
+  // Antenna masts
+  [4.9, 5.8].forEach((x, i) => {
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.6, 5), dark);
+    mast.position.set(x, 1.6, i ? 0.6 : -0.5);
+    grp.add(mast);
+  });
+  // Rear engine block + three big pods with glowing discs
+  const block = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2.4, 3.2), dark);
+  block.position.x = -5.2;
+  grp.add(block);
+  [[-0.05, 1.25], [-0.05, -1.25], [1.15, 0]].forEach(([y, z]) => {
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 0.85, 2.4, 12), frame);
+    pod.rotation.z = Math.PI / 2;
+    pod.position.set(-5.6, y, z);
+    grp.add(pod);
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.62, 16), blue);
+    disc.rotation.y = -Math.PI / 2;
+    disc.position.set(-6.85, y, z);
+    grp.add(disc);
+    grp.add(engineFlare(-7.3, y, z, 0x4db8ff, 2.2));
+  });
+  return grp;
+}
+
+// Broad wedge assault cruiser with side turret pods
+function buildCruiser() {
+  const grp = new THREE.Group();
+  const plate = new THREE.MeshStandardMaterial({ color: 0x8a94a4, metalness: 0.5, roughness: 0.48 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3f4a5c, metalness: 0.55, roughness: 0.55 });
+  const cyan = new THREE.MeshBasicMaterial({ color: 0x37e5ff });
+
+  const body = new THREE.Mesh(new THREE.BoxGeometry(7.2, 1.3, 4.4), plate);
+  grp.add(body);
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.6, 2.8), dark);
+  deck.position.y = 0.9;
+  grp.add(deck);
+  // Wedge bow
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(2.2, 3.6, 4), plate);
+  bow.rotation.z = -Math.PI / 2;
+  bow.rotation.x = Math.PI / 4;
+  bow.scale.z = 0.32;
+  bow.position.set(5.3, 0, 0);
+  grp.add(bow);
+  // Bridge tower
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.1, 1.1), plate);
+  tower.position.set(0.4, 1.7, 0);
+  grp.add(tower);
+  const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.3, 0.9), cyan);
+  bridge.position.set(1.0, 1.85, 0);
+  grp.add(bridge);
+  // Side turret pods with twin barrels
+  [-1, 1].forEach((s) => {
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.6, 10), dark);
+    pod.rotation.x = Math.PI / 2;
+    pod.position.set(1.6, 0.4, s * 2.6);
+    grp.add(pod);
+    [0.18, -0.18].forEach((dy) => {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 6), plate);
+      barrel.rotation.z = Math.PI / 2;
+      barrel.position.set(2.9, 0.4 + dy, s * 2.6);
+      grp.add(barrel);
+    });
+    // Engines
+    const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.2, 0.7, 8), cyan);
+    exhaust.rotation.z = Math.PI / 2;
+    exhaust.position.set(-3.9, 0, s * 1.3);
+    grp.add(exhaust);
+    grp.add(engineFlare(-4.4, 0, s * 1.3, 0x37e5ff, 1.7));
+  });
+  grp.add(engineFlare(-4.4, 0.6, 0, 0x37e5ff, 1.4));
+  const centerExhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.18, 0.7, 8), cyan);
+  centerExhaust.rotation.z = Math.PI / 2;
+  centerExhaust.position.set(-3.9, 0.6, 0);
+  grp.add(centerExhaust);
+  return grp;
+}
+
 // ── View management ──
 function clearView() {
   if (viewGroup) {
@@ -245,6 +441,9 @@ function clearView() {
   viewGroup = new THREE.Group();
   scene.add(viewGroup);
   enemies.clear();
+  interiorFigs.clear();
+  interiorLayout = null;
+  showcaseShip = null;
   effects.forEach((e) => scene.remove(e.obj));
   effects.length = 0;
   if (shipGroup.parent) shipGroup.parent.remove(shipGroup);
@@ -260,6 +459,7 @@ export function setClickHandler(fn) { clickHandler = fn; }
 // Galaxy map: star sprites + labels
 export function showGalaxy(systems, currentId, reachableFuel) {
   clearView();
+  viewName = 'galaxy';
   systems.forEach((s) => {
     const star = new THREE.Sprite(new THREE.SpriteMaterial({
       map: glowTexture(s.starColor), transparent: true,
@@ -311,6 +511,7 @@ export function showGalaxy(systems, currentId, reachableFuel) {
 const sysPlanets = [];
 export function showSystem(sys, selectedIndex) {
   clearView();
+  viewName = 'system';
   sysPlanets.length = 0;
 
   const star = new THREE.Mesh(
@@ -408,12 +609,234 @@ export function focusPlanet(index) {
 // Combat arena: ark centre, enemies swarm around
 export function showCombat() {
   clearView();
+  viewName = 'combat';
   viewGroup.add(shipGroup);
   shipGroup.position.set(0, 0, 0);
   shipGroup.rotation.set(0, 0, 0);
   shipGroup.scale.setScalar(1);
   goCamera(new THREE.Vector3(10, 9, 20), new THREE.Vector3(0, 0, 0), 80);
 }
+
+// ── Ship-selection showcase: one rotating ship, front and centre ──
+export function showShowcase(classId) {
+  clearView();
+  viewName = 'showcase';
+  showcaseShip = buildShip(classId);
+  showcaseShip.position.set(0, 0, 0);
+  viewGroup.add(showcaseShip);
+  goCamera(new THREE.Vector3(3, 4.5, 15), new THREE.Vector3(0, 0, 0), 60);
+}
+
+// ── Interior deck plan ──
+const ROOM_SIZE = 6, ROOM_GAP = 0.8;
+
+function slotPosition(cls, slot) {
+  const col = slot % cls.cols, row = Math.floor(slot / cls.cols);
+  return new THREE.Vector3(
+    -(col - (cls.cols - 1) / 2) * (ROOM_SIZE + ROOM_GAP),
+    0,
+    (row - (cls.rows - 1) / 2) * (ROOM_SIZE + ROOM_GAP),
+  );
+}
+
+function roomTile(pos, hex, label, pickData, solid = true) {
+  const tile = new THREE.Group();
+  tile.position.copy(pos);
+  const col = new THREE.Color(hex);
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(ROOM_SIZE - 0.5, 0.3, ROOM_SIZE - 0.5),
+    solid
+      ? new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.35), metalness: 0.3, roughness: 0.7 })
+      : new THREE.MeshStandardMaterial({ color: 0x22303f, transparent: true, opacity: 0.35, metalness: 0.2, roughness: 0.8 }),
+  );
+  floor.userData.pick = pickData;
+  tile.add(floor);
+  // Low walls
+  if (solid) {
+    const wallMat = new THREE.MeshStandardMaterial({ color: col.clone().multiplyScalar(0.8), metalness: 0.4, roughness: 0.5 });
+    const L = ROOM_SIZE - 0.5;
+    [[0, -L / 2], [0, L / 2]].forEach(([x, z]) => {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(L, 0.9, 0.18), wallMat);
+      w.position.set(x, 0.55, z);
+      w.userData.pick = pickData;
+      tile.add(w);
+    });
+    [[-L / 2, 0], [L / 2, 0]].forEach(([x, z]) => {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.9, L), wallMat);
+      w.position.set(x, 0.55, z);
+      w.userData.pick = pickData;
+      tile.add(w);
+    });
+  } else {
+    const edge = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(ROOM_SIZE - 0.5, 0.32, ROOM_SIZE - 0.5)),
+      new THREE.LineBasicMaterial({ color: 0x37e5ff, transparent: true, opacity: 0.35 }),
+    );
+    tile.add(edge);
+  }
+  const lbl = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: labelTexture(label, solid ? '#cfe8f5' : '#59788e'), transparent: true, depthWrite: false,
+  }));
+  lbl.position.y = 2.3;
+  lbl.scale.set(9, 2.25, 1);
+  tile.add(lbl);
+  return tile;
+}
+
+export function showInterior() {
+  clearView();
+  viewName = 'interior';
+  const cls = SHIP_CLASSES[state.ship.classId];
+  interiorLayout = { cls, roomPos: new Map() };
+
+  const width = cls.cols * (ROOM_SIZE + ROOM_GAP) + ROOM_SIZE * 2 + 10;
+  const depth = Math.max(cls.rows * (ROOM_SIZE + ROOM_GAP) + 5, ROOM_SIZE + 5);
+  // Hull deck plate
+  const deck = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.6, depth),
+    new THREE.MeshStandardMaterial({ color: 0x131c28, metalness: 0.4, roughness: 0.75 }),
+  );
+  deck.position.y = -0.45;
+  viewGroup.add(deck);
+  // Tapered bow / stern hints
+  const bowHint = new THREE.Mesh(new THREE.ConeGeometry(depth / 2.6, 6, 4),
+    new THREE.MeshStandardMaterial({ color: 0x0e1520, metalness: 0.4, roughness: 0.8 }));
+  bowHint.rotation.z = -Math.PI / 2;
+  bowHint.rotation.x = Math.PI / 4;
+  bowHint.scale.y = 0.15;
+  bowHint.position.set(width / 2 + 2.4, -0.45, 0);
+  viewGroup.add(bowHint);
+
+  const gridHalf = (cls.cols - 1) / 2 * (ROOM_SIZE + ROOM_GAP);
+  const bridgePos = new THREE.Vector3(gridHalf + ROOM_SIZE + 1.5, 0, 0);
+  const enginePos = new THREE.Vector3(-(gridHalf + ROOM_SIZE + 1.5), 0, 0);
+
+  // Fixed rooms
+  const bridgeDef = ROOM_TYPES.bridge;
+  viewGroup.add(roomTile(bridgePos, bridgeDef.color, `${bridgeDef.icon} Bridge`, { kind: 'room', id: 'bridge' }));
+  interiorLayout.roomPos.set('bridge', bridgePos);
+  const engDef = ROOM_TYPES.engine;
+  viewGroup.add(roomTile(enginePos, engDef.color, `${engDef.icon} Engine Room`, { kind: 'room', id: 'engine' }));
+  interiorLayout.roomPos.set('engine', enginePos);
+
+  // Built rooms + empty slots
+  const usedSlots = new Set(state.ship.rooms.map((r) => r.slot));
+  state.ship.rooms.forEach((r) => {
+    const def = ROOM_TYPES[r.type];
+    const pos = slotPosition(cls, r.slot);
+    viewGroup.add(roomTile(pos, def.color, `${def.icon} ${def.label}`, { kind: 'room', id: r.id }));
+    interiorLayout.roomPos.set(r.id, pos);
+  });
+  for (let s = 0; s < cls.cols * cls.rows; s++) {
+    if (usedSlots.has(s)) continue;
+    viewGroup.add(roomTile(slotPosition(cls, s), 0x2a3a4c, '+ build', { kind: 'slot', slot: s }, false));
+  }
+
+  // Alarm glows over rooms tied to damaged systems (opacity driven per-frame)
+  const alarmSpots = { engines: enginePos };
+  const firstOf = (type) => state.ship.rooms.find((r) => r.type === type);
+  const gun = firstOf('gunnery'); if (gun) alarmSpots.weapons = interiorLayout.roomPos.get(gun.id);
+  const cap = firstOf('shieldcap'); alarmSpots.shields = cap ? interiorLayout.roomPos.get(cap.id) : bridgePos;
+  const med = firstOf('medbay'); alarmSpots.life = med ? interiorLayout.roomPos.get(med.id) : bridgePos;
+  Object.entries(alarmSpots).forEach(([sys, pos]) => {
+    if (!pos) return;
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(0xff3344, 0.4), transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    glow.position.set(pos.x, 1.6, pos.z);
+    glow.scale.setScalar(7);
+    glow.name = 'alarm:' + sys;
+    viewGroup.add(glow);
+  });
+
+  const camDist = Math.max(width * 0.8, 30);
+  goCamera(new THREE.Vector3(0, camDist, camDist * 0.5), new THREE.Vector3(0, 0, 0), camDist * 2.2);
+  syncFigures();
+}
+
+const ROLE_COLORS = {
+  Pilot: 0x37e5ff, Engineer: 0xffb84d, Soldier: 0xff5566,
+  Scientist: 0x6b9fff, Botanist: 0x5dff9d, Medic: 0xf0f4f8,
+};
+
+function buildFigure(crew) {
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.3, 0.6, 3, 8),
+    new THREE.MeshStandardMaterial({ color: ROLE_COLORS[crew.role] || 0xcccccc, metalness: 0.2, roughness: 0.6 }),
+  );
+  body.position.y = 0.75;
+  grp.add(body);
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(0.2, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0xe8cdb0, roughness: 0.8 }),
+  );
+  head.position.y = 1.45;
+  grp.add(head);
+  grp.traverse((o) => { o.userData.pick = { kind: 'crewfig', id: crew.id }; });
+  return grp;
+}
+
+// Where should this crew member stand? (roomKey + slot index within room)
+function figureTarget(c, idx) {
+  const L = interiorLayout;
+  const rooms = (type) => state.ship.rooms.filter((r) => r.type === type);
+  let pos = null;
+  const inRooms = (type) => {
+    const rs = rooms(type);
+    if (!rs.length) return null;
+    const room = rs[Math.min(Math.floor(idx / 2), rs.length - 1)];
+    return L.roomPos.get(room.id);
+  };
+  const st = c.station;
+  if (st === 'helm') pos = L.roomPos.get('bridge');
+  else if (st === 'gunnery') pos = inRooms('gunnery');
+  else if (st === 'medbay') pos = inRooms('medbay');
+  else if (st === 'hydro') pos = inRooms('hydro');
+  else if (st === 'repair:engines') pos = L.roomPos.get('engine');
+  else if (st === 'repair:weapons') pos = inRooms('gunnery') || L.roomPos.get('engine');
+  else if (st === 'repair:shields') pos = inRooms('shieldcap') || L.roomPos.get('engine');
+  else if (st === 'repair:life') pos = inRooms('medbay') || L.roomPos.get('engine');
+  else pos = inRooms('quarters'); // idle
+  if (pos) {
+    const dx = (idx % 2 ? 1.15 : -1.15);
+    const dz = (Math.floor(idx / 2) % 2 ? 1.1 : -1.1);
+    return new THREE.Vector3(pos.x + dx, 0, pos.z + dz);
+  }
+  // No room: loiter in the central corridor
+  return new THREE.Vector3(-4 + idx * 2.1, 0, 0);
+}
+
+function syncFigures() {
+  if (viewName !== 'interior' || !interiorLayout) return;
+  const aboard = aboardCrew();
+  // Remove figures for crew no longer aboard
+  for (const [id, fig] of interiorFigs) {
+    if (!aboard.some((c) => c.id === id)) {
+      viewGroup.remove(fig.grp);
+      interiorFigs.delete(id);
+    }
+  }
+  // Group by station to compute per-station indices
+  const byStation = {};
+  aboard.forEach((c) => { (byStation[c.station] ||= []).push(c); });
+  Object.values(byStation).forEach((list) => {
+    list.forEach((c, idx) => {
+      let fig = interiorFigs.get(c.id);
+      if (!fig) {
+        fig = { grp: buildFigure(c), target: null };
+        fig.grp.position.copy(interiorLayout.roomPos.get('bridge')).setY(0);
+        interiorFigs.set(c.id, fig);
+        viewGroup.add(fig.grp);
+      }
+      fig.target = figureTarget(c, idx);
+      fig.bob = c.id * 1.7;
+    });
+  });
+}
+export const refreshInterior = () => { if (viewName === 'interior') showInterior(); };
+export const isInterior = () => viewName === 'interior';
 
 function buildAlien() {
   const grp = new THREE.Group();
@@ -568,6 +991,22 @@ export function update(dt) {
     sp.mesh.rotation.y += dt * 0.15;
     if (!sp.frozen) sp.holder.rotation.y += dt * sp.speed;
   });
+  // Showcase ship slowly rotates
+  if (viewName === 'showcase' && showcaseShip) showcaseShip.rotation.y += dt * 0.4;
+  // Interior: crew figures walk to their stations, alarms flicker
+  if (viewName === 'interior' && state) {
+    syncFigures();
+    interiorFigs.forEach((fig) => {
+      if (fig.target) fig.grp.position.lerp(fig.target, Math.min(1, dt * 2.4));
+      fig.grp.position.y = Math.sin(elapsed * 2.2 + fig.bob) * 0.05;
+    });
+    ['engines', 'weapons', 'shields', 'life'].forEach((sys) => {
+      const glow = viewGroup.getObjectByName('alarm:' + sys);
+      if (!glow) return;
+      const hp = state.systems[sys].hp;
+      glow.material.opacity = hp < 50 ? (0.3 + Math.sin(elapsed * 6) * 0.25) * (1 - hp / 60) : 0;
+    });
+  }
   // Enemies orbit the ark
   enemies.forEach((e) => {
     const o = e.orbit;

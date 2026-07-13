@@ -1,10 +1,10 @@
 // ── Game state: creation, galaxy generation, derived stats, save/load ──
 import {
   makeRng, pick, randInt, starName, crewName, planetName,
-  ROLES, PLANET_TYPES, DAY_SECONDS, clamp,
+  ROLES, PLANET_TYPES, DAY_SECONDS, clamp, SHIP_CLASSES,
 } from './data.js';
 
-export const SAVE_KEY = 'arkhorizon-save-v1';
+export const SAVE_KEY = 'arkhorizon-save-v2';
 
 export let state = null;
 
@@ -122,14 +122,20 @@ function genCrew(rng) {
 }
 
 // ── New game / save / load ───────────────────────────────────────
-export function newGame(seed = Math.floor(Math.random() * 1e9)) {
+export function newGame(seed = Math.floor(Math.random() * 1e9), classId = 'horizon') {
   const rng = makeRng(seed);
+  const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.horizon;
   state = {
     seed,
     time: 0,
     view: 'system',
-    resources: { fuel: 90, alloys: 70, food: 110 },
-    hull: 100, hullMax: 100,
+    ship: {
+      classId,
+      rooms: cls.startRooms.map((type, i) => ({ id: i + 1, type, slot: i })),
+      nextRoomId: cls.startRooms.length + 1,
+    },
+    resources: { ...cls.start },
+    hull: cls.hull, hullMax: cls.hull,
     shield: 0,
     systems: { engines: { hp: 100 }, weapons: { hp: 100 }, shields: { hp: 100 }, life: { hp: 100 } },
     crew: genCrew(rng),
@@ -157,7 +163,7 @@ export function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!s || !s.galaxy || s.flags.won || s.flags.lost) return null;
+    if (!s || !s.galaxy || !s.ship || s.flags.won || s.flags.lost) return null;
     state = s;
     return state;
   } catch { return null; }
@@ -175,14 +181,29 @@ function stationPower(stationKey, bonusRole) {
     (sum, c) => sum + c.skill * (c.role === bonusRole ? 2 : 1) * (c.hp > 40 ? 1 : 0.5), 0);
 }
 
-export const shieldMax = () => Math.round(30 + state.systems.shields.hp * 0.5);
+// ── Ship class & rooms ──
+export const shipClass = () => SHIP_CLASSES[state.ship.classId] || SHIP_CLASSES.horizon;
+export const roomsOf = (type) => state.ship.rooms.filter((r) => r.type === type);
+// Maximum crew a station can hold, gated by built rooms.
+export function stationCap(st) {
+  if (st === 'idle' || st.startsWith('repair:')) return 99;
+  if (st === 'helm') return 2;
+  const roomType = { gunnery: 'gunnery', medbay: 'medbay', hydro: 'hydro' }[st];
+  return roomType ? roomsOf(roomType).length * 2 : 0;
+}
+export const crewCapacity = () => shipClass().crewCap + roomsOf('quarters').length * 2;
+export const yieldMult = () => 1 + shipClass().yieldBonus + roomsOf('cargo').length * 0.1;
+
+export const shieldMax = () =>
+  Math.max(10, Math.round(30 + state.systems.shields.hp * 0.5 + shipClass().shieldBonus + roomsOf('shieldcap').length * 12));
 export const shieldRegen = () => (state.systems.shields.hp / 100) * 1.2; // per second, combat
 export const weaponDamage = () => {
   const gunnery = stationPower('gunnery', 'Soldier');
-  return (6 + gunnery * 1.6) * (0.25 + 0.75 * state.systems.weapons.hp / 100);
+  return (6 + gunnery * 1.6) * (0.25 + 0.75 * state.systems.weapons.hp / 100) * shipClass().weaponMult;
 };
 export const pilotBonus = () => stationPower('helm', 'Pilot'); // 0..~16
-export const repairRate = (sysKey) => stationPower('repair:' + sysKey, 'Engineer') * 1.1; // hp/s
+export const repairRate = (sysKey) =>
+  stationPower('repair:' + sysKey, 'Engineer') * 1.1 * (1 + roomsOf('engineering').length * 0.25); // hp/s
 export const medbayRate = () => stationPower('medbay', 'Medic') * 1.4;
 export const hydroRate = () => stationPower('hydro', 'Botanist') * 0.35; // food/day-ish
 
@@ -203,4 +224,4 @@ export const distanceTo = (sys) => {
   const cur = currentSystem();
   return Math.hypot(sys.x - cur.x, sys.y - cur.y, sys.z - cur.z);
 };
-export const fuelCost = (sys) => Math.max(4, Math.round(distanceTo(sys) * 0.32));
+export const fuelCost = (sys) => Math.max(4, Math.round(distanceTo(sys) * 0.32 * shipClass().fuelMult));

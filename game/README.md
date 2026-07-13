@@ -17,6 +17,17 @@ the game is fully self-contained and works under the site's CSP.
 
 ## How it plays
 
+- **Choose your ship** — every new voyage starts with a hangar screen offering four
+  hulls with different stats and room grids: the *Horizon* colony ark (balanced),
+  the *Nighthawk* stealth corvette (deadly guns, cheap jumps, thin hull), the
+  *Atlas* industrial hauler (huge hull and cargo yields, weak guns) and the
+  *Vanguard* assault cruiser (combat all-rounder).
+- **Manage the interior** — the 🛠 Ship button opens a 3D deck plan. Crew figures
+  stand in the rooms matching their stations and walk when reassigned; damaged
+  systems flash red alarms in their rooms. Spend alloys on empty slots to build
+  gun turrets, medbays, hydroponics, quarters, engineering bays, shield
+  capacitors and cargo pods — rooms gate station capacity (2 crew per turret,
+  etc.) and grant passive bonuses.
 - **Explore** — jump between stars on the galaxy map (costs fuel), scan planets,
   send ground expeditions for alloys / fuel / food. Skim gas giants for fuel.
 - **Crew** — assign everyone to stations (gunnery, helm, repair bays, medbay,

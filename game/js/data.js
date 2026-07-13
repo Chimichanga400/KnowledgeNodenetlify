@@ -33,6 +33,56 @@ export const SYSTEMS_DEF = {
   life:    { label: 'Life Support', icon: '💨' },
 };
 
+// ── Rooms (interior deck plan) ──
+export const ROOM_TYPES = {
+  bridge:      { label: 'Bridge',           icon: '🧭', color: 0x37e5ff, fixed: true, station: 'helm' },
+  engine:      { label: 'Engine Room',      icon: '🚀', color: 0xffb84d, fixed: true, station: 'repair:engines' },
+  gunnery:     { label: 'Gun Turret',       icon: '🎯', color: 0xff5566, cost: 40, station: 'gunnery', desc: '+2 gunner slots' },
+  medbay:      { label: 'Medbay',           icon: '⚕️', color: 0x5dff9d, cost: 30, station: 'medbay', desc: '+2 medic slots' },
+  hydro:       { label: 'Hydroponics',      icon: '🌱', color: 0x8dd96b, cost: 30, station: 'hydro', desc: '+2 farming slots' },
+  quarters:    { label: 'Crew Quarters',    icon: '🛏️', color: 0xb28dff, cost: 25, desc: '+2 crew capacity · off-duty crew heal faster' },
+  engineering: { label: 'Engineering Bay',  icon: '🔧', color: 0xffd86b, cost: 35, desc: '+25% repair speed' },
+  shieldcap:   { label: 'Shield Capacitor', icon: '🛡️', color: 0x6bd5ff, cost: 35, desc: '+12 max shields' },
+  cargo:       { label: 'Cargo Pod',        icon: '📦', color: 0xc9a25d, cost: 30, desc: '+10% expedition yield' },
+};
+
+// ── Selectable ship classes ──
+// grid: interior room slots (cols × rows). startRooms are placed into the first slots.
+export const SHIP_CLASSES = {
+  horizon: {
+    name: 'ACS Horizon', kind: 'Colony Ark',
+    desc: 'The classic ring-habitat ark. Balanced in every respect — a true generation ship.',
+    hull: 100, shieldBonus: 0, weaponMult: 1.0, fuelMult: 1.0, yieldBonus: 0, crewCap: 10,
+    cols: 4, rows: 2,
+    startRooms: ['gunnery', 'medbay', 'hydro'],
+    start: { fuel: 90, alloys: 70, food: 110 },
+  },
+  nighthawk: {
+    name: 'ACS Nighthawk', kind: 'Stealth Corvette',
+    desc: 'A matte-black strike corvette. Deadly guns, strong shields and cheap jumps — but thin hull and little room to expand.',
+    hull: 80, shieldBonus: 15, weaponMult: 1.3, fuelMult: 0.7, yieldBonus: 0, crewCap: 8,
+    cols: 2, rows: 2,
+    startRooms: ['gunnery', 'gunnery'],
+    start: { fuel: 110, alloys: 55, food: 90 },
+  },
+  atlas: {
+    name: 'ACS Atlas', kind: 'Industrial Hauler',
+    desc: 'A kilometre of cargo frames and engine pods. Massive hull and rich expedition hauls, but sluggish, thirsty and lightly armed.',
+    hull: 135, shieldBonus: -8, weaponMult: 0.8, fuelMult: 1.35, yieldBonus: 0.25, crewCap: 14,
+    cols: 6, rows: 2,
+    startRooms: ['cargo', 'medbay', 'hydro'],
+    start: { fuel: 100, alloys: 100, food: 140 },
+  },
+  vanguard: {
+    name: 'ACS Vanguard', kind: 'Assault Cruiser',
+    desc: 'A broad wedge of military plating with twin turret pods. Built to fight its way through hostile space.',
+    hull: 110, shieldBonus: 8, weaponMult: 1.1, fuelMult: 1.1, yieldBonus: 0, crewCap: 10,
+    cols: 3, rows: 3,
+    startRooms: ['gunnery', 'gunnery', 'medbay'],
+    start: { fuel: 85, alloys: 75, food: 105 },
+  },
+};
+
 export const PLANET_TYPES = {
   barren:  { label: 'Barren Rock',  color: 0x8a7f70, habMax: 20, res: { alloys: 3, fuel: 0, food: 0 } },
   ice:     { label: 'Ice World',    color: 0xbfe3ef, habMax: 45, res: { alloys: 1, fuel: 1, food: 1 } },
