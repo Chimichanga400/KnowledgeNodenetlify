@@ -18,12 +18,36 @@ let sel = null;     // shared selection context from main.js
 export function initUI(actions, selection) {
   A = actions;
   sel = selection;
-  $('btn-galaxy').onclick = () => A.openGalaxy();
-  $('btn-ship').onclick = () => A.openInterior();
+  $('btn-galaxy').onclick = () => { A.openGalaxy(); closeDrawers(); };
+  $('btn-ship').onclick = () => { A.openInterior(); closeDrawers(); };
   $('btn-crew').onclick = () => openCrewModal();
   $('btn-help').onclick = () => openHelp(false);
   $('btn-save').onclick = () => A.save();
+  // Mobile drawers
+  $('tab-left').onclick = () => toggleDrawer('left-panel');
+  $('tab-right').onclick = () => toggleDrawer('right-panel');
+  // Tapping/dragging the 3D scene tucks the drawers away
+  document.getElementById('scene').addEventListener('pointerdown', closeDrawers);
   onLog(renderLog);
+}
+
+// ── Mobile drawers ──
+export const isMobile = () => window.matchMedia('(max-width: 700px)').matches;
+function toggleDrawer(id) {
+  const el = $(id);
+  const other = $(id === 'left-panel' ? 'right-panel' : 'left-panel');
+  other.classList.remove('open');
+  el.classList.toggle('open');
+}
+export function openDrawer(side) {
+  if (!isMobile()) return;
+  $(side === 'left' ? 'left-panel' : 'right-panel').classList.add('open');
+  $(side === 'left' ? 'right-panel' : 'left-panel').classList.remove('open');
+}
+export function closeDrawers() {
+  if (!isMobile()) return;
+  $('left-panel').classList.remove('open');
+  $('right-panel').classList.remove('open');
 }
 
 // ── Top bar ──
@@ -322,6 +346,7 @@ export function closeModal() {
   const root = $('modal-root');
   root.classList.add('hidden');
   root.classList.remove('transparent');
+  $('hud').classList.remove('select-mode');
   root.innerHTML = '';
 }
 
@@ -345,7 +370,7 @@ export function openCrewModal() {
   }).join('');
   const m = modal(`<h2>👥 CREW ROSTER</h2>
     <p>Assign crew to stations. A ★ marks the station matching their specialty — they are twice as effective there. Badly hurt crew (&lt;40%) work at half speed; send them to rest or the medbay.</p>
-    <table class="crewtab"><tr><th>NAME</th><th>ROLE</th><th>HEALTH</th><th>STATION</th></tr>${rows}</table>
+    <div class="tabwrap"><table class="crewtab"><tr><th>NAME</th><th>ROLE</th><th>HEALTH</th><th>STATION</th></tr>${rows}</table></div>
     <div class="modal-actions"><button data-close>Done</button></div>`);
   m.querySelectorAll('select[data-crew]').forEach((s) => {
     s.onchange = () => A.assign(+s.dataset.crew, s.value);
@@ -399,6 +424,7 @@ export function openShipSelect(defaultId = 'horizon') {
   const root = $('modal-root');
   root.classList.remove('hidden');
   root.classList.add('transparent');
+  $('hud').classList.add('select-mode');
   root.onclick = null;
   const cards = Object.entries(SHIP_CLASSES).map(([id, c]) => `
     <div class="shipcard ${id === chosen ? 'sel' : ''}" data-ship="${id}">

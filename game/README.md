@@ -15,6 +15,11 @@ python3 -m http.server 8000   # from the repo root
 No build step — plain ES modules. Three.js (v0.160) is vendored in `lib/` so
 the game is fully self-contained and works under the site's CSP.
 
+Works on desktop and mobile: on phones the side panels become slide-in
+drawers (edge tabs ⚙ / ℹ, and the info drawer opens automatically when you
+tap a planet, star or room), the camera supports touch rotate & pinch-zoom,
+and the ship-selection screen scrolls with a sticky launch button.
+
 ## How it plays
 
 - **Choose your ship** — every new voyage starts with a hangar screen offering four

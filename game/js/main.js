@@ -77,6 +77,7 @@ function travel(starId) {
       ui.renderContext(); ui.renderTop();
     });
     ui.renderAll();
+    ui.openDrawer('right');
     return;
   }
   openSystem();
@@ -248,13 +249,15 @@ scene.setClickHandler((pick) => {
   if (pick.kind === 'star' && state.view === 'galaxy') {
     sel.star = pick.id;
     ui.renderContext();
+    ui.openDrawer('right');
   } else if (pick.kind === 'planet' && state.view === 'system') {
     selectPlanet(pick.index);
+    ui.openDrawer('right');
   } else if (pick.kind === 'enemy' && combat.active) {
     setTarget(pick.id);
   } else if (state.view === 'interior') {
-    if (pick.kind === 'room') { sel.room = pick.id; sel.slot = null; ui.renderContext(); }
-    else if (pick.kind === 'slot') { sel.slot = pick.slot; sel.room = null; ui.renderContext(); }
+    if (pick.kind === 'room') { sel.room = pick.id; sel.slot = null; ui.renderContext(); ui.openDrawer('right'); }
+    else if (pick.kind === 'slot') { sel.slot = pick.slot; sel.room = null; ui.renderContext(); ui.openDrawer('right'); }
     else if (pick.kind === 'crewfig') ui.openCrewModal();
   }
 });

@@ -183,6 +183,7 @@ h3:first-child { margin-top: 0; }
 .modal.victory h2 { color: var(--green); }
 
 /* crew table */
+.tabwrap { overflow-x: auto; }
 table.crewtab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 table.crewtab th { text-align: left; color: var(--text-dim); font-size: 10.5px; letter-spacing: .1em; padding: 4px 6px; border-bottom: 1px solid var(--panel-border); }
 table.crewtab td { padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.07); }
@@ -198,6 +199,8 @@ select {
 .picker input { accent-color: var(--cyan); }
 
 /* ── Ship selection ── */
+#hud.select-mode #topbar, #hud.select-mode #left-panel, #hud.select-mode #right-panel,
+#hud.select-mode #log, #hud.select-mode .drawer-tab { display: none; }
 #modal-root.transparent { background: transparent; pointer-events: none; }
 #modal-root.transparent .shipselect { pointer-events: auto; }
 .shipselect {
@@ -222,9 +225,77 @@ select {
 .sslaunch { margin: 14px 0 4px; }
 .sslaunch button { font-size: 15px; padding: 10px 34px; letter-spacing: .1em; }
 
-@media (max-width: 900px) {
+/* ── Mobile drawer tabs (hidden on desktop) ── */
+.drawer-tab { display: none; }
+
+@media (max-width: 900px) and (min-width: 701px) {
   #left-panel { width: 200px; }
   #right-panel { width: 230px; }
   #topbar { gap: 9px; font-size: 12px; }
   .bar { width: 70px; }
+}
+
+/* ── Phone layout ─────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  body { font-size: 13px; }
+
+  /* Top bar: two wrapping rows */
+  #topbar {
+    flex-wrap: wrap; height: auto; min-height: 46px;
+    gap: 4px 10px; padding: 6px 8px 6px;
+    font-size: 12px; align-content: center;
+  }
+  #topbar .brand { letter-spacing: .14em; font-size: 12px; width: 100%; text-align: center; display: none; }
+  #topbar .bars { margin-left: 0; gap: 8px; order: 5; }
+  .bar { width: 64px; height: 8px; }
+  .barlabel { font-size: 9px; }
+  #topbar .topbtns { order: 6; margin-left: auto; }
+  .tb { padding: 6px 8px; font-size: 12px; }
+
+  /* Side panels become slide-in drawers */
+  #left-panel, #right-panel {
+    top: 88px; bottom: 96px; z-index: 12;
+    width: min(84vw, 320px);
+    transition: transform .25s ease;
+  }
+  #left-panel { left: 0; border-radius: 0 8px 8px 0; transform: translateX(-105%); }
+  #right-panel { right: 0; border-radius: 8px 0 0 8px; transform: translateX(105%); }
+  #left-panel.open, #right-panel.open { transform: translateX(0); box-shadow: 0 0 40px rgba(0,0,0,.7); }
+
+  /* Edge tabs to open them */
+  .drawer-tab {
+    display: flex; align-items: center; justify-content: center;
+    position: absolute; top: 42%; width: 36px; height: 60px; padding: 0;
+    font-size: 17px; z-index: 13;
+    background: var(--panel); color: var(--cyan);
+    border: 1px solid var(--panel-border);
+  }
+  #tab-left { left: 0; border-left: none; border-radius: 0 10px 10px 0; }
+  #tab-right { right: 0; border-right: none; border-radius: 10px 0 0 10px; }
+
+  /* Log: shorter, smaller */
+  #log { height: 84px; font-size: 10.5px; padding: 6px 9px; left: 6px; right: 6px; bottom: 6px; }
+
+  #alert-banner { top: 96px; font-size: 14px; padding: 8px 18px; letter-spacing: .18em; max-width: 92vw; text-align: center; }
+
+  /* Modals */
+  .modal { padding: 14px 14px; max-height: 86vh; }
+  .modal h2 { font-size: 16px; }
+  table.crewtab { min-width: 440px; }
+  select { max-width: 140px; }
+
+  /* Ship selection: scrollable column with sticky launch button */
+  .shipselect { overflow-y: auto; justify-content: flex-start; padding: 10px 10px 0; }
+  .sstitle { padding: 8px 14px; }
+  .sstitle h1 { font-size: 16px; letter-spacing: .2em; }
+  .sstitle p { font-size: 11px; }
+  .shipcards { margin-top: 12px; gap: 9px; }
+  .shipcard { width: min(92vw, 360px); padding: 10px 12px; }
+  .sslaunch {
+    position: sticky; bottom: 0; width: 100%;
+    display: flex; justify-content: center;
+    padding: 10px 0 12px; margin: 6px 0 0;
+    background: linear-gradient(to top, rgba(2,6,12,.95) 65%, transparent);
+  }
+  .sslaunch button { font-size: 14px; padding: 12px 26px; }
 }
