@@ -1,0 +1,205 @@
+/* ── Ark Horizon HUD ─────────────────────────────────────────── */
+:root {
+  --cyan: #37e5ff;
+  --cyan-dim: rgba(55, 229, 255, .35);
+  --amber: #ffb84d;
+  --red: #ff5566;
+  --green: #5dff9d;
+  --panel: rgba(6, 16, 28, .82);
+  --panel-border: rgba(55, 229, 255, .25);
+  --text: #cfe8f5;
+  --text-dim: #7fa3b8;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: #02060c;
+  color: var(--text);
+  font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  -webkit-user-select: none; user-select: none;
+}
+#app, #scene { position: fixed; inset: 0; width: 100%; height: 100%; }
+#scene { display: block; }
+#hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+#hud > * { pointer-events: auto; }
+.hidden { display: none !important; }
+button {
+  font-family: inherit;
+  background: rgba(55, 229, 255, .08);
+  color: var(--cyan);
+  border: 1px solid var(--cyan-dim);
+  border-radius: 4px;
+  padding: 6px 12px;
+  cursor: pointer;
+  letter-spacing: .04em;
+  transition: background .15s, box-shadow .15s;
+}
+button:hover:not(:disabled) { background: rgba(55,229,255,.2); box-shadow: 0 0 12px rgba(55,229,255,.35); }
+button:disabled { opacity: .35; cursor: not-allowed; }
+button.warn { color: var(--amber); border-color: rgba(255,184,77,.4); background: rgba(255,184,77,.08); }
+button.warn:hover:not(:disabled) { background: rgba(255,184,77,.18); box-shadow: 0 0 12px rgba(255,184,77,.3); }
+button.danger { color: var(--red); border-color: rgba(255,85,102,.4); background: rgba(255,85,102,.08); }
+button.danger:hover:not(:disabled) { background: rgba(255,85,102,.18); box-shadow: 0 0 12px rgba(255,85,102,.3); }
+h3 {
+  font-size: 11px; letter-spacing: .18em; color: var(--cyan);
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 4px; margin: 14px 0 8px;
+}
+h3:first-child { margin-top: 0; }
+
+/* ── Top bar ── */
+#topbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 46px;
+  display: flex; align-items: center; gap: 16px; padding: 0 14px;
+  background: linear-gradient(to bottom, rgba(4,12,22,.95), rgba(4,12,22,.75));
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 13px;
+}
+#topbar .brand { color: var(--cyan); font-weight: 700; letter-spacing: .25em; font-size: 14px; text-shadow: 0 0 12px var(--cyan-dim); }
+#topbar .res span { color: #fff; font-weight: 600; }
+#topbar .bars { display: flex; gap: 12px; margin-left: auto; }
+.barwrap { display: flex; align-items: center; gap: 6px; }
+.barlabel { font-size: 10px; letter-spacing: .1em; color: var(--text-dim); }
+.bar { width: 110px; height: 10px; background: rgba(255,255,255,.08); border: 1px solid var(--panel-border); border-radius: 3px; overflow: hidden; }
+.bar .fill { height: 100%; width: 100%; transition: width .3s; }
+.fill.hull { background: linear-gradient(90deg, #ff5566, #ffb84d, #5dff9d); }
+.fill.shield { background: linear-gradient(90deg, #1d6f8a, var(--cyan)); }
+.fill.sys { background: var(--cyan); }
+.fill.sys.low { background: var(--amber); }
+.fill.sys.crit { background: var(--red); }
+.fill.hp { background: var(--green); }
+#topbar .topbtns { display: flex; gap: 6px; }
+.tb { padding: 4px 10px; font-size: 12px; }
+
+/* ── Side panels ── */
+#left-panel, #right-panel {
+  position: absolute; top: 56px; bottom: 140px; width: 250px;
+  background: var(--panel); border: 1px solid var(--panel-border);
+  border-radius: 6px; padding: 12px; overflow-y: auto;
+  backdrop-filter: blur(4px);
+}
+#left-panel { left: 10px; }
+#right-panel { right: 10px; width: 290px; }
+#left-panel::-webkit-scrollbar, #right-panel::-webkit-scrollbar, #log::-webkit-scrollbar, .modal::-webkit-scrollbar { width: 6px; }
+#left-panel::-webkit-scrollbar-thumb, #right-panel::-webkit-scrollbar-thumb, #log::-webkit-scrollbar-thumb, .modal::-webkit-scrollbar-thumb { background: var(--cyan-dim); border-radius: 3px; }
+
+.sysrow { margin-bottom: 8px; }
+.sysrow .sysname { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px; }
+.sysrow .sysname b { color: var(--text); font-weight: 600; }
+.sysrow .sysname .pct { color: var(--text-dim); }
+.sysrow .bar { width: 100%; height: 7px; }
+.sysrow .crewtag { font-size: 10px; color: var(--amber); }
+
+.stationrow {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; padding: 4px 6px; margin-bottom: 3px;
+  background: rgba(255,255,255,.03); border-radius: 4px;
+}
+.stationrow .cnt { color: var(--cyan); font-weight: 700; }
+.stationrow .names { color: var(--text-dim); font-size: 10px; max-width: 140px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.missionrow, .outpostrow {
+  font-size: 12px; padding: 6px; margin-bottom: 5px;
+  background: rgba(255,255,255,.04); border-left: 2px solid var(--amber); border-radius: 3px;
+}
+.outpostrow { border-left-color: var(--green); }
+.missionrow .timer { color: var(--amber); font-weight: 700; }
+.missionrow .sub, .outpostrow .sub { color: var(--text-dim); font-size: 11px; }
+
+/* ── Right context panel ── */
+#right-panel h2 { font-size: 17px; color: #fff; margin-bottom: 2px; letter-spacing: .06em; }
+#right-panel .subtitle { color: var(--text-dim); font-size: 12px; margin-bottom: 10px; }
+.kv { display: flex; justify-content: space-between; font-size: 12.5px; padding: 3px 0; border-bottom: 1px dashed rgba(255,255,255,.07); }
+.kv .k { color: var(--text-dim); }
+.kv .v { color: var(--text); font-weight: 600; }
+.kv .v.good { color: var(--green); }
+.kv .v.warn { color: var(--amber); }
+.kv .v.bad { color: var(--red); }
+.actions { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.actions button { width: 100%; text-align: left; }
+.actions button small { display: block; color: var(--text-dim); font-size: 10.5px; margin-top: 2px; }
+.planetlist { margin-top: 10px; }
+.planetrow {
+  display: flex; align-items: center; gap: 8px; padding: 6px; margin-bottom: 4px;
+  background: rgba(255,255,255,.03); border: 1px solid transparent; border-radius: 4px; cursor: pointer;
+}
+.planetrow:hover { border-color: var(--cyan-dim); }
+.planetrow.sel { border-color: var(--cyan); background: rgba(55,229,255,.08); }
+.planetrow .dot { width: 14px; height: 14px; border-radius: 50%; flex: none; }
+.planetrow .pname { font-size: 12.5px; }
+.planetrow .ptype { color: var(--text-dim); font-size: 10.5px; margin-left: auto; }
+.hint { color: var(--text-dim); font-size: 11.5px; line-height: 1.5; margin-top: 10px; }
+
+/* ── Combat panel ── */
+.enemyrow {
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px; margin-bottom: 4px;
+  background: rgba(255,85,102,.06); border: 1px solid rgba(255,85,102,.25); border-radius: 4px; cursor: pointer;
+}
+.enemyrow.sel { border-color: var(--red); background: rgba(255,85,102,.15); box-shadow: 0 0 8px rgba(255,85,102,.3); }
+.enemyrow .ename { font-size: 12px; color: #ffb3bc; }
+.enemyrow .bar { width: 70px; height: 6px; margin-left: auto; }
+.enemyrow .fill { background: var(--red); }
+.wavetag { text-align: center; color: var(--red); letter-spacing: .2em; font-size: 12px; margin-bottom: 8px; font-weight: 700; }
+
+/* ── Event log ── */
+#log {
+  position: absolute; left: 10px; right: 10px; bottom: 8px; height: 122px;
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 6px;
+  padding: 8px 12px; overflow-y: auto; font-size: 12px; line-height: 1.55;
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+#log .t { color: var(--text-dim); margin-right: 8px; font-size: 10.5px; }
+#log .msg-info { color: var(--text); }
+#log .msg-good { color: var(--green); }
+#log .msg-warn { color: var(--amber); }
+#log .msg-bad { color: var(--red); }
+
+/* ── Alert banner ── */
+#alert-banner {
+  position: absolute; top: 60px; left: 50%; transform: translateX(-50%);
+  padding: 10px 34px; font-size: 18px; font-weight: 700; letter-spacing: .3em;
+  color: var(--red); background: rgba(60,5,12,.85); border: 1px solid var(--red);
+  border-radius: 6px; text-shadow: 0 0 14px rgba(255,85,102,.8);
+  animation: pulse 1s infinite;
+}
+#alert-banner.info { color: var(--cyan); background: rgba(4,25,38,.85); border-color: var(--cyan); text-shadow: 0 0 14px var(--cyan-dim); animation: none; }
+@keyframes pulse { 50% { opacity: .55; } }
+
+/* ── Modals ── */
+#modal-root {
+  position: absolute; inset: 0; background: rgba(0,4,10,.72);
+  display: flex; align-items: center; justify-content: center; z-index: 20;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--panel-border); border-radius: 8px;
+  padding: 22px 26px; width: min(680px, 92vw); max-height: 82vh; overflow-y: auto;
+  box-shadow: 0 0 60px rgba(55,229,255,.15);
+}
+.modal h2 { color: var(--cyan); letter-spacing: .12em; margin-bottom: 12px; font-size: 18px; }
+.modal p { line-height: 1.6; margin-bottom: 10px; color: var(--text); font-size: 13.5px; }
+.modal .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
+.modal.gameover h2 { color: var(--red); }
+.modal.victory h2 { color: var(--green); }
+
+/* crew table */
+table.crewtab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.crewtab th { text-align: left; color: var(--text-dim); font-size: 10.5px; letter-spacing: .1em; padding: 4px 6px; border-bottom: 1px solid var(--panel-border); }
+table.crewtab td { padding: 5px 6px; border-bottom: 1px dashed rgba(255,255,255,.07); }
+table.crewtab .rolechip { font-size: 10px; padding: 1px 7px; border-radius: 8px; border: 1px solid var(--cyan-dim); color: var(--cyan); white-space: nowrap; }
+table.crewtab tr.away td { opacity: .45; }
+table.crewtab .bar { width: 60px; height: 6px; display: inline-block; vertical-align: middle; }
+select {
+  background: #07131f; color: var(--text); border: 1px solid var(--cyan-dim);
+  border-radius: 4px; padding: 3px 6px; font-family: inherit; font-size: 12px;
+}
+.picker label { display: flex; gap: 8px; align-items: center; padding: 5px 8px; margin-bottom: 3px; background: rgba(255,255,255,.03); border-radius: 4px; cursor: pointer; font-size: 12.5px; }
+.picker label:hover { background: rgba(55,229,255,.07); }
+.picker input { accent-color: var(--cyan); }
+
+@media (max-width: 900px) {
+  #left-panel { width: 200px; }
+  #right-panel { width: 230px; }
+  #topbar { gap: 9px; font-size: 12px; }
+  .bar { width: 70px; }
+}
