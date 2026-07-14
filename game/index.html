@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Ark Horizon — Spaceship Management</title>
+<link rel="stylesheet" href="css/game.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="app">
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="brand">ARK&nbsp;HORIZON</div>
+      <div class="res" title="Fuel — spent on jumps between star systems">⛽ <span id="r-fuel">0</span></div>
+      <div class="res" title="Alloys — used for repairs, outposts and colonization">🔩 <span id="r-alloys">0</span></div>
+      <div class="res" title="Food — consumed daily by crew aboard">🌾 <span id="r-food">0</span></div>
+      <div class="res" title="Crew alive">👥 <span id="r-crew">0</span></div>
+      <div class="res" title="Mission day">📅 Day <span id="r-day">1</span></div>
+      <div class="bars">
+        <div class="barwrap" title="Hull integrity"><span class="barlabel">HULL</span><div class="bar"><div id="bar-hull" class="fill hull"></div></div></div>
+        <div class="barwrap" title="Shield charge"><span class="barlabel">SHLD</span><div class="bar"><div id="bar-shield" class="fill shield"></div></div></div>
+      </div>
+      <div class="topbtns">
+        <button id="btn-galaxy" class="tb">🌌 Map</button>
+        <button id="btn-ship" class="tb">🛠 Ship</button>
+        <button id="btn-crew" class="tb">👥 Crew</button>
+        <button id="btn-help" class="tb">?</button>
+        <button id="btn-save" class="tb">💾</button>
+      </div>
+    </header>
+
+    <!-- Ship systems (left) -->
+    <aside id="left-panel">
+      <h3>SHIP SYSTEMS</h3>
+      <div id="systems"></div>
+      <h3>STATIONS</h3>
+      <div id="stations"></div>
+      <h3 id="missions-h" class="hidden">ACTIVE MISSIONS</h3>
+      <div id="missions"></div>
+      <h3 id="outposts-h" class="hidden">OUTPOSTS</h3>
+      <div id="outposts"></div>
+    </aside>
+
+    <!-- Context panel (right) -->
+    <aside id="right-panel"></aside>
+
+    <!-- Mobile drawer tabs -->
+    <button id="tab-left" class="drawer-tab" title="Ship systems">⚙</button>
+    <button id="tab-right" class="drawer-tab" title="Info & actions">ℹ</button>
+
+    <!-- Event log (bottom) -->
+    <div id="log"></div>
+
+    <!-- Combat alert banner -->
+    <div id="alert-banner" class="hidden"></div>
+
+    <!-- Modals -->
+    <div id="modal-root" class="hidden"></div>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
