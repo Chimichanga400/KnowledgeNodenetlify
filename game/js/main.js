@@ -8,11 +8,14 @@ import {
   state, newGame, loadGame, saveGame, clearSave, log,
   currentSystem, currentPlanet, fuelCost, aliveCrew, aboardCrew,
   pilotBonus, shieldMax, atStation, stationCap,
+  hasTech, addScience, addCodex, roomCost, outpostCost, canTradeHere,
 } from './state.js';
 import {
-  clamp, makeRng, randInt, OUTPOST_COST, COLONY_COST, COLONY_HAB_MIN,
+  clamp, makeRng, randInt, COLONY_COST, COLONY_HAB_MIN,
   COLONY_CREW_MIN, OUTPOST_HAB_MIN, PLANET_TYPES, ROOM_TYPES, SHIP_CLASSES,
+  TECHS, PRICE_BASE,
 } from './data.js';
+import { initGalaxySim, questsOnArrival, completeQuest } from './galaxysim.js';
 
 const sel = { star: null, room: null, slot: null };   // selections shared with ui.js
 
@@ -68,23 +71,45 @@ function travel(starId) {
   ui.banner('JUMPING…', true, 1200);
   sfx.warp();
 
-  // Ambush roll
+  // Ambush roll (a spurned pirate toll guarantees one)
   const rng = makeRng((state.seed ^ state.stats.jumps * 104729) >>> 0);
   let p = 0.18 + target.danger * 0.22 - pilotBonus() * 0.015;
   if (target.cleared) p *= 0.35;
   if (firstVisit) p += 0.08;
-  if (rng() < clamp(p, 0.05, 0.9) && target.danger > 0) {
-    ui.banner('⚠ AMBUSH — HOSTILES ON INTERCEPT', false, 3000);
-    startCombat(target.danger, (result) => onCombatEnd(result, origin), () => {
+  const forced = state.forceAmbush;
+  state.forceAmbush = false;
+  if (forced || (rng() < clamp(p, 0.05, 0.9) && target.danger > 0)) {
+    ui.banner(forced ? '⚠ THE CORSAIRS COLLECT THEIR TOLL' : '⚠ AMBUSH — HOSTILES ON INTERCEPT', false, 3000);
+    startCombat(Math.max(1, target.danger), (result) => onCombatEnd(result, origin), () => {
       ui.renderContext(); ui.renderTop();
     });
     ui.renderAll();
     ui.openDrawer('right');
     return;
   }
+  arriveInSystem();
+  maybeAutosave(true);
+}
+
+// Post-jump arrival: resolve rescue/delivery objectives, then bounty hunts.
+function arriveInSystem() {
+  const hunt = questsOnArrival();
+  if (hunt) {
+    ui.banner('⚠ BOUNTY TARGETS ON SCOPE', false, 2600);
+    const sys = currentSystem();
+    startCombat(Math.max(1, sys.danger), (result) => {
+      if (result === 'victory') {
+        completeQuest(hunt);
+        sys.danger = Math.max(0, sys.danger - 1);
+      }
+      onCombatEnd(result, state.loc.systemId);
+    }, () => { ui.renderContext(); ui.renderTop(); });
+    ui.renderAll();
+    ui.openDrawer('right');
+    return;
+  }
   openSystem();
   ui.renderAll();
-  maybeAutosave(true);
 }
 
 function onCombatEnd(result, originId) {
@@ -93,7 +118,11 @@ function onCombatEnd(result, originId) {
   if (result === 'victory') {
     currentSystem().cleared = true;
     ui.banner('THREAT ELIMINATED', true, 2200);
-  } else if (result === 'fled') {
+    arriveInSystem();   // rescue/delivery objectives here still count
+    maybeAutosave(true);
+    return;
+  }
+  if (result === 'fled') {
     // Retreat back the way we came.
     state.loc.systemId = originId;
     state.loc.planetIndex = 0;
@@ -104,10 +133,12 @@ function onCombatEnd(result, originId) {
   maybeAutosave(true);
 }
 
+// ── Staged planet exploration: orbital scan → probe → landing → deep site ──
 function scan() {
   const p = currentPlanet();
-  if (!p || p.scanned) return;
-  p.scanned = true;
+  if (!p || p.scanStage >= 1) return;
+  p.scanStage = hasTech('deepSensors') ? 2 : 1;
+  addScience(2, `orbital survey of ${p.name}`);
   const sci = aboardCrew().filter((c) => c.role === 'Scientist' && c.hp > 30).length;
   if (sci) {
     // Scientists squeeze extra value out of survey data.
@@ -118,15 +149,91 @@ function scan() {
   if (hab >= COLONY_HAB_MIN) {
     log(`📡 Scan complete: ${p.name} is a GOLDEN WORLD (${hab}% habitability)! This could be home.`, 'good');
     ui.banner('🌍 GOLDEN WORLD DETECTED', true, 3500);
+    addCodex('🌍', `Golden World: ${p.name}`, `A ${PLANET_TYPES[p.type].label.toLowerCase()} with ${hab}% habitability — a world our people could truly live on.`);
   } else {
     log(`📡 Scan complete: ${p.name} — ${PLANET_TYPES[p.type].label}, ${hab}% habitability.`, 'info');
   }
   ui.renderAll();
 }
 
+function probe() {
+  const p = currentPlanet();
+  if (!p || p.scanStage < 1 || p.scanStage >= 2) return;
+  const cost = hasTech('freeProbes') ? 0 : 5;
+  if (state.resources.alloys < cost) return;
+  state.resources.alloys -= cost;
+  p.scanStage = 2;
+  addScience(3, `probe telemetry from ${p.name}`);
+  log(`🛰 Probe down on ${p.name}: ${p.life.toLowerCase()}, radiation ${['minimal', 'low', 'high', 'lethal'][p.radiation]}, ${p.water}% surface water.`, 'info');
+  if (p.life === 'Complex fauna') addCodex('🦎', `Fauna of ${p.name}`, 'Probe cameras captured multicellular life moving on the surface — proof the galaxy is not empty.');
+  ui.renderAll();
+}
+
+function deepExplore(crewIds) {
+  const p = currentPlanet();
+  if (!p || p.deepDone || p.scanStage < 3 || !(p.ruins || p.signal || p.wonder)) return;
+  const team = state.crew.filter((c) => crewIds.includes(c.id) && c.status === 'aboard');
+  if (team.length < 2) return;
+  team.forEach((c) => { c.status = 'mission'; c.station = 'idle'; });
+  state.missions.push({
+    id: state.nextId++,
+    kind: 'deep',
+    systemId: state.loc.systemId,
+    planetIndex: state.loc.planetIndex,
+    crewIds: team.map((c) => c.id),
+    endsAt: state.time + 26,
+  });
+  log(`Deep exploration team descending toward the ${p.wonder ? 'structure' : p.ruins ? 'ruins' : 'signal source'} on ${p.name}.`, 'warn');
+  ui.renderAll();
+}
+
+function terraform() {
+  const p = currentPlanet();
+  if (!hasTech('terraforming') || !p || p.terraformed || p.type === 'gas' || state.resources.alloys < 100) return;
+  state.resources.alloys -= 100;
+  p.terraformed = true;
+  p.habitability = clamp(p.habitability + 25, 0, 100);
+  log(`🌍 Terraforming engines seeded on ${p.name} — habitability rises to ${p.habitability}%.`, 'good');
+  if (p.habitability >= COLONY_HAB_MIN) {
+    addCodex('🌱', `World Reborn: ${p.name}`, 'A hostile rock remade into a living world by our own hands. The colonists will never know how the rains began.');
+    ui.banner('🌍 TERRAFORMING SUCCESSFUL — GOLDEN WORLD CREATED', true, 3500);
+  }
+  ui.renderAll();
+}
+
+function research(techId) {
+  const t = TECHS[techId];
+  if (!t || hasTech(techId) || state.science < t.cost) return;
+  if (t.requires && !hasTech(t.requires)) return;
+  state.science -= t.cost;
+  state.tech.researched.push(techId);
+  if (techId === 'reinforcedHull') { state.hullMax += 25; state.hull += 25; }
+  log(`🔬 Research complete: ${t.name} — ${t.desc}.`, 'good');
+  ui.renderAll();
+}
+
+// Trade ±qty of a resource at the local market (positive = buy).
+function trade(res, qty) {
+  if (!canTradeHere() || !PRICE_BASE[res]) return;
+  const price = state.market[res] * PRICE_BASE[res];
+  if (qty > 0) {
+    const cost = Math.ceil(price * 1.15 * qty);
+    if (state.credits < cost) return;
+    state.credits -= cost;
+    state.resources[res] += qty;
+  } else {
+    const amount = Math.min(-qty, Math.floor(state.resources[res]));
+    if (amount <= 0) return;
+    state.resources[res] -= amount;
+    state.credits += Math.floor(price * 0.85 * amount);
+  }
+  ui.renderAll();
+  ui.refreshTradeModal();
+}
+
 function expedition(crewIds) {
   const p = currentPlanet();
-  if (!p) return;
+  if (!p || p.scanStage < 2) return;
   const team = state.crew.filter((c) => crewIds.includes(c.id) && c.status === 'aboard');
   if (team.length < 2) return;
   team.forEach((c) => { c.status = 'mission'; c.station = 'idle'; });
@@ -154,10 +261,10 @@ function skim() {
 
 function buildOutpost(crewIds) {
   const p = currentPlanet();
-  if (!p || p.outpost || p.habitability < OUTPOST_HAB_MIN || state.resources.alloys < OUTPOST_COST) return;
+  if (!p || p.outpost || p.habitability < OUTPOST_HAB_MIN || state.resources.alloys < outpostCost()) return;
   const settlers = state.crew.filter((c) => crewIds.includes(c.id) && c.status === 'aboard');
   if (settlers.length < 2) return;
-  state.resources.alloys -= OUTPOST_COST;
+  state.resources.alloys -= outpostCost();
   settlers.forEach((c) => { c.status = 'outpost'; c.station = 'idle'; });
   p.outpost = true;
   state.outposts.push({
@@ -165,6 +272,7 @@ function buildOutpost(crewIds) {
     systemId: state.loc.systemId,
     planetIndex: state.loc.planetIndex,
     crewIds: settlers.map((c) => c.id),
+    population: 2,
     lastYield: null,
   });
   log(`🏕 Outpost founded on ${p.name}. ${settlers.length} settlers begin construction.`, 'good');
@@ -198,12 +306,13 @@ function assign(crewId, station) {
 function buildRoom(slot, type) {
   const def = ROOM_TYPES[type];
   if (!def || def.fixed || slot == null) return;
-  if (state.resources.alloys < def.cost) return;
+  const cost = roomCost(type);
+  if (state.resources.alloys < cost) return;
   if (state.ship.rooms.some((r) => r.slot === slot)) return;
-  state.resources.alloys -= def.cost;
+  state.resources.alloys -= cost;
   const room = { id: state.ship.nextRoomId++, type, slot };
   state.ship.rooms.push(room);
-  log(`${def.icon} ${def.label} constructed (−${def.cost} alloys).`, 'good');
+  log(`${def.icon} ${def.label} constructed (−${cost} alloys).`, 'good');
   sel.slot = null;
   sel.room = room.id;
   scene.showInterior();
@@ -240,10 +349,18 @@ function restart() {
 
 // ── Actions table handed to the UI ──
 const actions = {
-  openGalaxy, openSystem, openInterior, selectPlanet, travel, scan, expedition, skim,
+  openGalaxy, openSystem, openInterior, selectPlanet, travel, scan, probe,
+  expedition, deepExplore, terraform, research, trade, skim,
   buildOutpost, colonize, assign, save, buildRoom, previewShip, chooseShip,
   target: setTarget, flee: attemptFlee, newGame: restart,
 };
+
+// Story events from the living galaxy open a choice modal (never mid-battle,
+// and never on top of another modal).
+initGalaxySim((ev) => {
+  if (combat.active || !document.getElementById('modal-root').classList.contains('hidden')) return;
+  ui.openEventModal(ev);
+});
 
 // ── Scene click routing ──
 scene.setClickHandler((pick) => {

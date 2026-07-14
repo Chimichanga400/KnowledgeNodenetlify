@@ -2,9 +2,11 @@
 import * as scene from './scene.js';
 import {
   state, log, shieldMax, shieldRegen, weaponDamage, pilotBonus,
-  damageSystem, damageHull, aboardCrew, atStation, currentDay,
+  damageSystem, damageHull, aboardCrew, atStation,
+  awardXp, moraleAll, moraleShift, enemyDamageMult,
 } from './state.js';
 import { ALIEN_NAMES, pick, makeRng, randInt, clamp } from './data.js';
+import * as sfx from './sfx.js';
 
 export const combat = {
   active: false,
@@ -36,6 +38,7 @@ export function startCombat(danger, onEnd, onUpdate) {
   combat.fleeing = false;
   state.view = 'combat';
   scene.showCombat();
+  sfx.alarm();
   log(`⚠ Hostile contacts! ${combat.totalWaves} attack wave${combat.totalWaves > 1 ? 's' : ''} inbound.`, 'bad');
   spawnWave();
 }
@@ -86,7 +89,7 @@ function enemyShot(e) {
   const from = scene.enemyPosition(e.id);
   const to = scene.shipWorldPos();
   scene.laser(from, to, 0xff5566);
-  const dmg = e.dps * (1.4 + rng());
+  const dmg = e.dps * (1.4 + rng()) * enemyDamageMult();
   const evade = clamp(pilotBonus() * 0.02, 0, 0.35);
   if (rng() < evade) { log('Evasive maneuver — shot went wide.', 'info'); return; }
   if (state.shield > 0) {
@@ -102,12 +105,17 @@ function enemyShot(e) {
       const aboard = aboardCrew().filter((c) => c.hp > 0);
       if (aboard.length) {
         const victim = pick(rng, aboard);
-        victim.hp = Math.max(0, victim.hp - randInt(rng, 15, 35));
-        if (victim.hp === 0) {
-          victim.status = 'dead';
-          log(`☠ ${victim.name} was killed in the attack.`, 'bad');
-        } else {
-          log(`${victim.name} was injured in the blast (${victim.hp}%).`, 'warn');
+        // Fearless crew keep their heads down at the right moments.
+        if (!(victim.traits?.includes('fearless') && rng() < 0.5)) {
+          victim.hp = Math.max(0, victim.hp - randInt(rng, 15, 35));
+          if (victim.hp === 0) {
+            victim.status = 'dead';
+            log(`☠ ${victim.name} was killed in the attack.`, 'bad');
+            moraleAll(-10);
+          } else {
+            log(`${victim.name} was injured in the blast (${victim.hp}%).`, 'warn');
+            moraleShift(victim, -8);
+          }
         }
       }
     }
@@ -127,6 +135,7 @@ function playerShot() {
     scene.removeEnemy(target.id);
     combat.enemies = combat.enemies.filter((e) => e !== target);
     state.stats.kills++;
+    atStation('gunnery').forEach((c) => awardXp(c, 6));
     log(`${target.name} destroyed.`, 'good');
     if (combat.targetId === target.id) combat.targetId = null;
     if (combat.enemies.length === 0) {
@@ -140,9 +149,12 @@ function playerShot() {
 function victory() {
   const alloys = randInt(rng, 8, 16) + combat.danger * 6;
   const fuel = randInt(rng, 2, 8);
+  const credits = randInt(rng, 8, 18) + combat.danger * 6;
   state.resources.alloys += alloys;
   state.resources.fuel += fuel;
-  log(`Hostiles eliminated. Salvaged ${alloys} alloys and ${fuel} fuel from the wreckage.`, 'good');
+  state.credits += credits;
+  moraleAll(5);
+  log(`Hostiles eliminated. Salvaged ${alloys} alloys, ${fuel} fuel and ${credits} credits' worth of bounty tags.`, 'good');
   endCombat('victory');
 }
 

@@ -1,9 +1,11 @@
 // ── Background simulation: runs once per second ─────────────────
 import {
   state, log, aliveCrew, aboardCrew, repairRate, medbayRate, hydroRate,
-  shieldMax, roomsOf, yieldMult, crewCapacity,
+  shieldMax, roomsOf, yieldMult, crewCapacity, hasTech, awardXp, moraleShift,
+  moraleAll, addScience, addCodex,
 } from './state.js';
-import { DAY_SECONDS, FOOD_PER_CREW_DAY, randInt, makeRng, pick, clamp } from './data.js';
+import { DAY_SECONDS, FOOD_PER_CREW_DAY, randInt, makeRng, pick, clamp, colonyStage } from './data.js';
+import { galaxyDayTick } from './galaxysim.js';
 
 let lastDay = 1;
 let starving = false;
@@ -76,18 +78,20 @@ export function tick(inCombat) {
     } else {
       state.resources.food = 0;
       if (!starving) { starving = true; log('⚠ Food stores empty — the crew is starving!', 'bad'); }
+      moraleAll(-5);
       aboardCrew().forEach((c) => {
         c.hp = clamp(c.hp - randInt(rng, 6, 14), 0, 100);
         if (c.hp === 0) { c.status = 'dead'; log(`☠ ${c.name} died of starvation.`, 'bad'); }
       });
     }
-    // Outpost production
+    // Colony production scales with settlement stage (Landing Site → City).
     state.outposts.forEach((o) => {
       const sys = state.galaxy.systems[o.systemId];
       const p = sys.planets[o.planetIndex];
       const staff = state.crew.filter((c) => o.crewIds.includes(c.id) && c.status === 'outpost');
-      const mult = 0.5 + staff.reduce((s, c) => s + c.skill * (c.role === 'Botanist' || c.role === 'Engineer' ? 0.35 : 0.18), 0);
-      const food = Math.round((2 + p.resources.food * 0.06) * mult);
+      const mult = (0.5 + staff.reduce((s, c) => s + c.skill * (c.role === 'Botanist' || c.role === 'Engineer' ? 0.35 : 0.18), 0))
+        * colonyStage(o.population ?? 0).mult;
+      const food = Math.round((2 + p.resources.food * 0.06) * mult * (hasTech('hydroDomes') ? 1.5 : 1));
       const alloys = Math.round((1 + p.resources.alloys * 0.05) * mult);
       const fuel = Math.round(p.resources.fuel * 0.04 * mult);
       state.resources.food += food;
@@ -96,8 +100,10 @@ export function tick(inCombat) {
       o.lastYield = { food, alloys, fuel };
     });
     if (state.outposts.length && day % 3 === 0) {
-      log(`Outposts delivered supplies (day ${day}).`, 'good');
+      log(`Colonies delivered supplies (day ${day}).`, 'good');
     }
+    // The galaxy lives its own life once a day.
+    galaxyDayTick(day);
   }
 
   // ── Missions ──
@@ -108,13 +114,16 @@ export function tick(inCombat) {
 
 // Resolve an away-mission that just finished. Returns a summary string.
 export function resolveMission(m) {
+  if (m.kind === 'deep') return resolveDeepExploration(m);
   const rng = makeRng((state.seed ^ m.id * 2654435761) >>> 0);
   const sys = state.galaxy.systems[m.systemId];
   const p = sys.planets[m.planetIndex];
   const team = state.crew.filter((c) => m.crewIds.includes(c.id) && c.status === 'mission');
   const skill = team.reduce((s, c) => s + c.skill * (c.role === 'Scientist' || c.role === 'Soldier' ? 1.5 : 1), 0);
+  p.scanStage = Math.max(p.scanStage ?? 0, 3);
 
-  const mult = yieldMult();
+  const greedy = team.filter((c) => c.traits?.includes('greedy')).length;
+  const mult = yieldMult() * (1 + greedy * 0.1);
   const gain = {
     alloys: Math.round(p.resources.alloys * (0.12 + rng() * 0.1) * (1 + skill * 0.06) * mult),
     fuel: Math.round(p.resources.fuel * (0.12 + rng() * 0.1) * (1 + skill * 0.06) * mult),
@@ -130,10 +139,12 @@ export function resolveMission(m) {
   p.expeditions++;
   state.stats.expeditions++;
 
-  // Hazard rolls
+  // Hazard rolls: survivalists and medical nanites halve the risk.
   let injuries = 0, deaths = 0;
   team.forEach((c) => {
-    const risk = p.hazard * 0.13 - skill * 0.004;
+    let risk = p.hazard * 0.13 - skill * 0.004;
+    if (c.traits?.includes('survivalist')) risk *= 0.5;
+    if (hasTech('medNanites')) risk *= 0.5;
     if (rng() < risk) {
       const dmg = randInt(rng, 25, 70);
       c.hp = clamp(c.hp - dmg, 0, 100);
@@ -141,7 +152,15 @@ export function resolveMission(m) {
       else injuries++;
     }
   });
-  team.forEach((c) => { if (c.status === 'mission') { c.status = 'aboard'; c.station = 'idle'; } });
+  team.forEach((c) => {
+    if (c.status === 'mission') { c.status = 'aboard'; c.station = 'idle'; }
+    awardXp(c, 12);
+    moraleShift(c, deaths ? -6 : 3);
+  });
+  if (deaths) moraleAll(-6);
+  if (p.expeditions === 1 && !p.deepDone && (p.ruins || p.signal || p.wonder)) {
+    log(`Ground team reports ${p.wonder ? 'a colossal artificial structure' : p.ruins ? 'ancient ruins' : 'the signal source'} on ${p.name} — a deep exploration could reach it.`, 'warn');
+  }
 
   // Occasional stranded survivor joins the crew (if there's a bunk free)
   let recruit = null;
@@ -170,5 +189,67 @@ export function resolveMission(m) {
   if (deaths) msg += ` ${deaths} crew KIA.`;
   if (recruit) msg += ` Survivor ${recruit.name} (${recruit.role}) joined the crew!`;
   log(msg, deaths ? 'bad' : injuries ? 'warn' : 'good');
+  return msg;
+}
+
+// ── Deep exploration: ruins, signals and wonders ─────────────────
+// High risk, high reward, once per site. This is where the codex fills up.
+const ARTIFACTS = [
+  ['🗿', 'The Sleeping Sentinel', 'A humanoid statue of unknown alloy, warm to the touch. It faces galactic north no matter how it is stored.'],
+  ['💠', 'Resonance Lattice', 'A crystal that hums the same eleven notes in any atmosphere. Colonial scholars pay well for recordings.'],
+  ['⚙️', 'Precursor Servo', 'A mechanism a million years old that still turns without friction. Its bearings defy analysis.'],
+  ['📿', 'Funerary Chain', 'A chain of etched rings, each recording a life in a script no archive can match.'],
+];
+
+function resolveDeepExploration(m) {
+  const rng = makeRng((state.seed ^ m.id * 1597334677) >>> 0);
+  const sys = state.galaxy.systems[m.systemId];
+  const p = sys.planets[m.planetIndex];
+  const team = state.crew.filter((c) => m.crewIds.includes(c.id) && c.status === 'mission');
+  p.deepDone = true;
+
+  // Harsher hazard than a survey — they are going *into* something.
+  let injuries = 0, deaths = 0;
+  team.forEach((c) => {
+    let risk = (p.hazard + 1) * 0.12;
+    if (c.traits?.includes('survivalist')) risk *= 0.5;
+    if (hasTech('medNanites')) risk *= 0.5;
+    if (rng() < risk) {
+      const dmg = randInt(rng, 30, 80);
+      c.hp = clamp(c.hp - dmg, 0, 100);
+      if (c.hp === 0) { c.status = 'dead'; deaths++; } else injuries++;
+    }
+  });
+  team.forEach((c) => {
+    if (c.status === 'mission') { c.status = 'aboard'; c.station = 'idle'; }
+    awardXp(c, 20);
+    moraleShift(c, deaths ? -8 : 6);
+  });
+
+  const sciMult = hasTech('xenoArch') ? 1.5 : 1;
+  let sci = Math.round(randInt(rng, 8, 15) * sciMult);
+  let credits = randInt(rng, 10, 30);
+
+  if (p.wonder) {
+    sci = Math.round(25 * sciMult);
+    credits += 50;
+    addCodex('🛸', p.wonder, `Discovered on ${p.name}. ${p.wonder === 'Derelict Generation Ship'
+      ? 'A kilometre of silent corridors and empty cryo-bays. Whoever they were, they almost made it.'
+      : 'A wall of engineered matter vanishing over the horizon — one fragment of something that once circled the entire star.'}`);
+    moraleAll(8);
+  } else if (p.ruins && rng() < 0.6 + (team.some((c) => c.traits?.includes('lucky')) ? 0.15 : 0)) {
+    const a = ARTIFACTS[randInt(rng, 0, ARTIFACTS.length - 1)];
+    if (addCodex(a[0], a[1], `${a[2]} Recovered from ${p.name}.`)) credits += 25;
+    else credits += 15;
+  } else if (p.signal) {
+    addCodex('📡', `Signal Source: ${p.name}`, 'A buried transmitter of non-human design, still broadcasting into the dark. Its power source shows no decay.');
+  }
+
+  state.science += sci;
+  state.credits += credits;
+  let msg = `Deep exploration of ${p.name} complete: +${sci} science, +${credits} credits.`;
+  if (injuries) msg += ` ${injuries} crew injured.`;
+  if (deaths) msg += ` ${deaths} crew lost inside.`;
+  log(msg, deaths ? 'bad' : 'good');
   return msg;
 }

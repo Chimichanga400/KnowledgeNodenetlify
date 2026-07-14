@@ -33,6 +33,60 @@ export const SYSTEMS_DEF = {
   life:    { label: 'Life Support', icon: '💨' },
 };
 
+// ── Crew traits: each gives one honest mechanical hook ──
+export const TRAITS = {
+  fearless:   { label: 'Fearless',      icon: '🦁', desc: 'Half as likely to be hurt in combat' },
+  lucky:      { label: 'Lucky',         icon: '🍀', desc: 'Better outcomes from events & expeditions' },
+  fastLearner:{ label: 'Fast Learner',  icon: '📚', desc: 'Gains experience twice as fast' },
+  greedy:     { label: 'Greedy',        icon: '🪙', desc: '+15% personal expedition yield' },
+  coward:     { label: 'Coward',        icon: '😨', desc: 'Loses twice as much morale from setbacks' },
+  ironWill:   { label: 'Iron Will',     icon: '🗿', desc: 'Morale never drops below 30' },
+  survivalist:{ label: 'Survivalist',   icon: '🏕️', desc: 'Half injury chance on expeditions' },
+  tinkerer:   { label: 'Tinkerer',      icon: '⚙️', desc: '+25% effectiveness in repair bays' },
+};
+
+// ── Research tree: 4 branches, linear prerequisites ──
+export const TECHS = {
+  deepSensors:    { branch: 'Exploration',  name: 'Deep-Range Sensors',   cost: 15, icon: '📡', desc: 'Orbital scans also reveal probe-level data' },
+  freeProbes:     { branch: 'Exploration',  name: 'Probe Miniaturization', cost: 25, icon: '🛰️', desc: 'Probes cost no alloys', requires: 'deepSensors' },
+  xenoArch:       { branch: 'Exploration',  name: 'Xeno-Archaeology',     cost: 40, icon: '🏺', desc: 'Deep explorations yield +50% science', requires: 'freeProbes' },
+  warpOpt:        { branch: 'Exploration',  name: 'Warp Optimization',    cost: 55, icon: '🌀', desc: 'Jump fuel cost −25%', requires: 'xenoArch' },
+  repairDrones:   { branch: 'Engineering',  name: 'Repair Drones',        cost: 15, icon: '🤖', desc: 'Repair speed +30%' },
+  reinforcedHull: { branch: 'Engineering',  name: 'Reinforced Hull',      cost: 25, icon: '🧱', desc: '+25 max hull, applied immediately', requires: 'repairDrones' },
+  shieldHarmonics:{ branch: 'Engineering',  name: 'Shield Harmonics',     cost: 40, icon: '🛡️', desc: '+15 max shields', requires: 'reinforcedHull' },
+  autoForges:     { branch: 'Engineering',  name: 'Auto-Forges',          cost: 55, icon: '🏭', desc: 'Rooms & outposts cost −30% alloys', requires: 'shieldHarmonics' },
+  focusedLances:  { branch: 'Weapons',      name: 'Focused Lances',       cost: 15, icon: '🔆', desc: 'Weapon damage +15%' },
+  pointDefense:   { branch: 'Weapons',      name: 'Point-Defense Grid',   cost: 25, icon: '🕸️', desc: 'Enemy shots deal −15% damage', requires: 'focusedLances' },
+  targetingAI:    { branch: 'Weapons',      name: 'Targeting AI',         cost: 40, icon: '🎯', desc: 'Weapon damage +20%', requires: 'pointDefense' },
+  novaBattery:    { branch: 'Weapons',      name: 'Nova Battery',         cost: 55, icon: '💥', desc: 'Weapon damage +25%', requires: 'targetingAI' },
+  hydroDomes:     { branch: 'Colonization', name: 'Hydroponic Domes',     cost: 15, icon: '🌾', desc: 'Colony food output +50%' },
+  colonyCharters: { branch: 'Colonization', name: 'Colony Charters',      cost: 25, icon: '📜', desc: 'Colonies grow twice as fast', requires: 'hydroDomes' },
+  medNanites:     { branch: 'Colonization', name: 'Medical Nanites',      cost: 40, icon: '💉', desc: 'Medbay +50%, expedition injuries halved', requires: 'colonyCharters' },
+  terraforming:   { branch: 'Colonization', name: 'Terraforming',         cost: 60, icon: '🌍', desc: 'Unlock: raise a planet’s habitability by +25 (once per planet, 100 alloys)', requires: 'medNanites' },
+};
+
+// ── Living-economy base prices (credits per unit) ──
+export const PRICE_BASE = { fuel: 3, alloys: 4, food: 2 };
+
+// ── Colony growth stages (population thresholds) ──
+export const COLONY_STAGES = [
+  { pop: 0,  label: 'Landing Site', mult: 0.6 },
+  { pop: 6,  label: 'Outpost',      mult: 1.0 },
+  { pop: 14, label: 'Settlement',   mult: 1.5 },
+  { pop: 28, label: 'Town',         mult: 2.2 },
+  { pop: 55, label: 'City',         mult: 3.2 },
+];
+export const colonyStage = (pop) => {
+  let s = COLONY_STAGES[0];
+  for (const st of COLONY_STAGES) if (pop >= st.pop) s = st;
+  return s;
+};
+
+// ── Planet surface attributes (revealed in scan stages) ──
+export const ATMOSPHERES = ['None', 'Trace', 'Toxic haze', 'CO₂-heavy', 'Nitrogen-oxygen', 'Dense hydrogen'];
+export const WEATHERS = ['Dead calm', 'Dust storms', 'Acid rain', 'Electrical storms', 'Blizzards', 'Hurricane belts', 'Gentle rains'];
+export const LIFEFORMS = ['None detected', 'Microbial', 'Hardy flora', 'Complex fauna'];
+
 // ── Rooms (interior deck plan) ──
 export const ROOM_TYPES = {
   bridge:      { label: 'Bridge',           icon: '🧭', color: 0x37e5ff, fixed: true, station: 'helm' },

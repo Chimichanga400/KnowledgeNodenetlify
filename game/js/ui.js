@@ -3,13 +3,15 @@ import {
   state, aliveCrew, aboardCrew, atStation, shieldMax, currentSystem,
   currentPlanet, fuelCost, currentDay, onLog,
   shipClass, stationCap, crewCapacity, roomsOf,
+  hasTech, avgMorale, canTradeHere, roomCost, outpostCost,
 } from './state.js';
 import { combat } from './combat.js';
 import {
   SYSTEMS_DEF, STATIONS, ROLE_ICON, PLANET_TYPES, fmt,
-  OUTPOST_COST, OUTPOST_HAB_MIN, COLONY_COST, COLONY_HAB_MIN, COLONY_CREW_MIN,
-  SHIP_CLASSES, ROOM_TYPES,
+  OUTPOST_HAB_MIN, COLONY_COST, COLONY_HAB_MIN, COLONY_CREW_MIN,
+  SHIP_CLASSES, ROOM_TYPES, TECHS, TRAITS, PRICE_BASE, colonyStage,
 } from './data.js';
+import * as sfx from './sfx.js';
 
 const $ = (id) => document.getElementById(id);
 let A = null;       // actions from main.js
@@ -21,6 +23,8 @@ export function initUI(actions, selection) {
   $('btn-galaxy').onclick = () => { A.openGalaxy(); closeDrawers(); };
   $('btn-ship').onclick = () => { A.openInterior(); closeDrawers(); };
   $('btn-crew').onclick = () => openCrewModal();
+  $('btn-research').onclick = () => openResearchModal();
+  $('btn-codex').onclick = () => openCodexModal();
   $('btn-help').onclick = () => openHelp(false);
   $('btn-save').onclick = () => A.save();
   // Mobile drawers
@@ -55,6 +59,8 @@ export function renderTop() {
   $('r-fuel').textContent = fmt(state.resources.fuel);
   $('r-alloys').textContent = fmt(state.resources.alloys);
   $('r-food').textContent = fmt(state.resources.food);
+  $('r-credits').textContent = fmt(state.credits);
+  $('r-science').textContent = fmt(state.science);
   $('r-crew').textContent = aliveCrew().length;
   $('r-day').textContent = currentDay();
   $('bar-hull').style.width = (state.hull / state.hullMax * 100) + '%';
@@ -76,6 +82,8 @@ export function renderLeft() {
   }).join('');
 
   const stEl = $('stations');
+  const mor = avgMorale();
+  const morIcon = mor >= 70 ? '😊' : mor >= 45 ? '😐' : '😠';
   stEl.innerHTML = Object.entries(STATIONS)
     .filter(([k]) => !k.startsWith('repair:'))
     .map(([key, def]) => {
@@ -83,7 +91,19 @@ export function renderLeft() {
       return `<div class="stationrow"><span>${def.label}</span>
         <span class="names">${crew.map((c) => c.name.split(' ')[0]).join(', ')}</span>
         <span class="cnt">${crew.length}</span></div>`;
-    }).join('');
+    }).join('')
+    + `<div class="stationrow" title="Average crew morale — low morale slows every station"><span>Morale</span><span class="cnt">${morIcon} ${mor}%</span></div>`;
+
+  // Objectives (quests from the living galaxy)
+  $('quests-h').classList.toggle('hidden', !state.quests.length);
+  $('quests').innerHTML = state.quests.map((q) => {
+    const sys = state.galaxy.systems[q.systemId];
+    const icon = { rescue: '🆘', deliver: '📦', hunt: '☠' }[q.type];
+    const here = q.systemId === state.loc.systemId;
+    return `<div class="missionrow quest">${icon} ${q.text}
+      <div class="sub">${here ? '📍 you are here' : '→ ' + sys.name} · <span class="timer">${Math.max(0, q.expiresDay - currentDay())}d</span>
+      ${q.type === 'deliver' ? ` · needs ${q.amount} 🌾` : ''}</div></div>`;
+  }).join('');
 
   // Missions
   $('missions-h').classList.toggle('hidden', !state.missions.length);
@@ -100,8 +120,9 @@ export function renderLeft() {
   $('outposts').innerHTML = state.outposts.map((o) => {
     const p = state.galaxy.systems[o.systemId].planets[o.planetIndex];
     const y = o.lastYield;
-    return `<div class="outpostrow">🏕 ${p.name}
-      <div class="sub">${o.crewIds.length} settlers${y ? ` · +${y.food}🌾 +${y.alloys}🔩 +${y.fuel}⛽ /day` : ''}</div></div>`;
+    const stage = colonyStage(o.population ?? 0);
+    return `<div class="outpostrow">🏕 ${p.name} <span class="sub">· ${stage.label}</span>
+      <div class="sub">pop. ${Math.round((o.population ?? 0) * 100)}${y ? ` · +${y.food}🌾 +${y.alloys}🔩 +${y.fuel}⛽ /day` : ''}</div></div>`;
   }).join('');
 }
 
@@ -147,7 +168,7 @@ function interiorPanel() {
       <div class="hint" style="margin-top:4px">Choose what to construct in this empty compartment. You have <b>${fmt(state.resources.alloys)}</b> alloys.</div>
       <div class="actions">` +
       Object.entries(ROOM_TYPES).filter(([, d]) => !d.fixed).map(([type, d]) => `
-        <button data-build="${type}" ${state.resources.alloys < d.cost ? 'disabled' : ''}>${d.icon} ${d.label} — ${d.cost} 🔩
+        <button data-build="${type}" ${state.resources.alloys < roomCost(type) ? 'disabled' : ''}>${d.icon} ${d.label} — ${roomCost(type)} 🔩
         <small>${d.desc || ''}</small></button>`).join('') +
       `</div>`;
   } else {
@@ -219,48 +240,86 @@ function systemPanel() {
     const col = '#' + PLANET_TYPES[p.type].color.toString(16).padStart(6, '0');
     return `<div class="planetrow ${i === state.loc.planetIndex ? 'sel' : ''}" data-planet="${i}">
       <span class="dot" style="background:${col}; box-shadow:0 0 8px ${col}"></span>
-      <span class="pname">${p.name}${p.outpost ? ' 🏕' : ''}</span>
-      <span class="ptype">${p.scanned ? PLANET_TYPES[p.type].label : 'Unknown'}</span></div>`;
+      <span class="pname">${p.name}${p.outpost ? ' 🏕' : ''}${p.deepDone ? ' 📖' : ''}</span>
+      <span class="ptype">${(p.scanStage ?? 0) >= 1 ? PLANET_TYPES[p.type].label : 'Unknown'}</span></div>`;
   }).join('') + `</div>`;
 
   const p = currentPlanet();
-  if (p) {
-    html += `<h3 style="margin-top:14px">${p.name.toUpperCase()}</h3>`;
-    if (!p.scanned) {
-      html += `<div class="hint">Surface unscanned. Run a sensor sweep to reveal habitability and resources.</div>
-        <div class="actions"><button data-act="scan">📡 Scan planet<small>Instant · scientists improve resource detection</small></button></div>`;
-    } else {
-      const hab = p.habitability;
-      html += `
-        <div class="kv"><span class="k">Class</span><span class="v">${PLANET_TYPES[p.type].label}</span></div>
-        <div class="kv"><span class="k">Habitability</span><span class="v ${habClass(hab)}">${hab}%</span></div>
-        <div class="kv"><span class="k">Hazard</span><span class="v ${p.hazard >= 2 ? 'bad' : p.hazard ? 'warn' : 'good'}">${['None', 'Low', 'High', 'Severe'][p.hazard]}</span></div>
-        <div class="kv"><span class="k">Alloy deposits</span><span class="v">${p.resources.alloys}</span></div>
-        <div class="kv"><span class="k">Fuel sources</span><span class="v">${p.resources.fuel}</span></div>
-        <div class="kv"><span class="k">Biomass (food)</span><span class="v">${p.resources.food}</span></div>`;
-      html += `<div class="actions">`;
-      const idle = aboardCrew().filter((c) => c.hp > 30);
-      html += `<button data-act="exped" ${idle.length < 2 ? 'disabled' : ''}>🧭 Send expedition
-        <small>${idle.length < 2 ? 'Need 2 healthy crew aboard' : 'Gather resources · ' + Math.round(20 + p.hazard * 8) + 's · hazard risk'}</small></button>`;
-      if (p.type === 'gas') {
-        html += `<button data-act="skim" ${p.resources.fuel <= 0 ? 'disabled' : ''}>⛽ Skim atmosphere
-          <small>${p.resources.fuel <= 0 ? 'Reserves exhausted' : 'Harvest hydrogen fuel from the upper clouds'}</small></button>`;
-      }
-      if (!p.outpost && hab >= OUTPOST_HAB_MIN) {
-        const ok = state.resources.alloys >= OUTPOST_COST && aboardCrew().length > 2;
-        html += `<button data-act="outpost" class="warn" ${ok ? '' : 'disabled'}>🏕 Establish outpost
-          <small>${OUTPOST_COST} alloys + 2 settlers · produces supplies daily</small></button>`;
-      }
-      if (hab >= COLONY_HAB_MIN) {
-        const ok = state.resources.alloys >= COLONY_COST && aliveCrew().length >= COLONY_CREW_MIN;
-        html += `<button data-act="colonize" class="warn" ${ok ? '' : 'disabled'}>🌍 FOUND COLONY — WIN
-          <small>A golden world! Needs ${COLONY_COST} alloys and ${COLONY_CREW_MIN}+ crew alive</small></button>`;
-      }
-      html += `</div>`;
-    }
-  }
-  html += `<div class="actions"><button data-act="map">🌌 Open galaxy map</button></div>`;
+  if (p) html += planetDetail(p);
+  html += `<div class="actions">`;
+  if (canTradeHere()) html += `<button data-act="trade">💠 Trade at local market</button>`;
+  html += `<button data-act="map">🌌 Open galaxy map</button></div>`;
   return html;
+}
+
+// Progressive reveal: each exploration stage exposes another layer of data.
+function planetDetail(p) {
+  const stage = p.scanStage ?? 0;
+  let html = `<h3 style="margin-top:14px">${p.name.toUpperCase()}
+    <span style="float:right;color:var(--text-dim);font-size:10px">${['UNCHARTED', 'SCANNED', 'PROBED', 'SURVEYED'][Math.min(stage, 3)]}</span></h3>`;
+
+  if (stage === 0) {
+    return html + `<div class="hint">An uncharted world. Run an orbital scan to classify it.</div>
+      <div class="actions"><button data-act="scan">📡 Orbital scan<small>Instant · +2 science · scientists improve resource detection</small></button></div>`;
+  }
+
+  const hab = p.habitability;
+  html += `
+    <div class="kv"><span class="k">Class</span><span class="v">${PLANET_TYPES[p.type].label}</span></div>
+    <div class="kv"><span class="k">Habitability</span><span class="v ${habClass(hab)}">${hab}%${p.terraformed ? ' 🌱' : ''}</span></div>
+    <div class="kv"><span class="k">Gravity</span><span class="v">${p.gravity} g</span></div>
+    <div class="kv"><span class="k">Mean temp</span><span class="v">${p.tempC}°C</span></div>
+    <div class="kv"><span class="k">Atmosphere</span><span class="v">${p.atmosphere}</span></div>`;
+
+  if (stage >= 2) {
+    html += `
+      <div class="kv"><span class="k">Surface water</span><span class="v">${p.water}%</span></div>
+      <div class="kv"><span class="k">Radiation</span><span class="v ${p.radiation >= 2 ? 'bad' : p.radiation ? 'warn' : 'good'}">${['Minimal', 'Low', 'High', 'Lethal'][p.radiation]}</span></div>
+      <div class="kv"><span class="k">Weather</span><span class="v">${p.weather}</span></div>
+      <div class="kv"><span class="k">Lifeforms</span><span class="v ${p.life !== 'None detected' ? 'good' : ''}">${p.life}</span></div>
+      <div class="kv"><span class="k">Hazard</span><span class="v ${p.hazard >= 2 ? 'bad' : p.hazard ? 'warn' : 'good'}">${['None', 'Low', 'High', 'Severe'][p.hazard]}</span></div>
+      <div class="kv"><span class="k">Alloy deposits</span><span class="v">${p.resources.alloys}</span></div>
+      <div class="kv"><span class="k">Fuel sources</span><span class="v">${p.resources.fuel}</span></div>
+      <div class="kv"><span class="k">Biomass (food)</span><span class="v">${p.resources.food}</span></div>`;
+  }
+  if (stage >= 3 && (p.ruins || p.signal || p.wonder)) {
+    html += `<div class="kv"><span class="k">Site detected</span><span class="v warn">${p.wonder ? '🛸 Massive structure' : p.ruins ? '🏺 Ancient ruins' : '📡 Signal source'}${p.deepDone ? ' (explored)' : ''}</span></div>`;
+  }
+
+  html += `<div class="actions">`;
+  const idle = aboardCrew().filter((c) => c.hp > 30);
+  if (stage === 1) {
+    const cost = hasTech('freeProbes') ? 0 : 5;
+    html += `<button data-act="probe" ${state.resources.alloys < cost ? 'disabled' : ''}>🛰 Deploy probe
+      <small>${cost ? cost + ' alloys' : 'Free'} · +3 science · reveals surface conditions</small></button>`;
+  }
+  if (stage >= 2) {
+    html += `<button data-act="exped" ${idle.length < 2 ? 'disabled' : ''}>🧭 Send expedition
+      <small>${idle.length < 2 ? 'Need 2 healthy crew aboard' : 'Gather resources · ' + Math.round(20 + p.hazard * 8) + 's · hazard risk'}</small></button>`;
+  }
+  if (stage >= 3 && (p.ruins || p.signal || p.wonder) && !p.deepDone) {
+    html += `<button data-act="deep" class="warn" ${idle.length < 2 ? 'disabled' : ''}>🏺 Deep exploration
+      <small>Enter the site · dangerous · science, credits & codex discoveries</small></button>`;
+  }
+  if (p.type === 'gas') {
+    html += `<button data-act="skim" ${p.resources.fuel <= 0 ? 'disabled' : ''}>⛽ Skim atmosphere
+      <small>${p.resources.fuel <= 0 ? 'Reserves exhausted' : 'Harvest hydrogen fuel from the upper clouds'}</small></button>`;
+  }
+  if (stage >= 2 && !p.outpost && hab >= OUTPOST_HAB_MIN) {
+    const ok = state.resources.alloys >= outpostCost() && aboardCrew().length > 2;
+    html += `<button data-act="outpost" class="warn" ${ok ? '' : 'disabled'}>🏕 Establish colony
+      <small>${outpostCost()} alloys + 2 settlers · grows into a city over time</small></button>`;
+  }
+  if (hasTech('terraforming') && stage >= 2 && !p.terraformed && p.type !== 'gas' && hab < 100) {
+    html += `<button data-act="terraform" class="warn" ${state.resources.alloys < 100 ? 'disabled' : ''}>🌱 Terraform
+      <small>100 alloys · +25 habitability, once per world</small></button>`;
+  }
+  if (hab >= COLONY_HAB_MIN && stage >= 1) {
+    const ok = state.resources.alloys >= COLONY_COST && aliveCrew().length >= COLONY_CREW_MIN;
+    html += `<button data-act="colonize" class="warn" ${ok ? '' : 'disabled'}>🌍 FOUND HOMEWORLD — WIN
+      <small>A golden world! Needs ${COLONY_COST} alloys and ${COLONY_CREW_MIN}+ crew alive</small></button>`;
+  }
+  return html + `</div>`;
 }
 
 function wireSystem(el) {
@@ -271,10 +330,14 @@ function wireSystem(el) {
     b.onclick = () => {
       const act = b.dataset.act;
       if (act === 'scan') A.scan();
-      if (act === 'exped') openExpeditionModal();
+      if (act === 'probe') A.probe();
+      if (act === 'exped') openExpeditionModal('expedition');
+      if (act === 'deep') openExpeditionModal('deep');
       if (act === 'skim') A.skim();
       if (act === 'outpost') openOutpostModal();
+      if (act === 'terraform') A.terraform();
       if (act === 'colonize') A.colonize();
+      if (act === 'trade') openTradeModal();
       if (act === 'map') A.openGalaxy();
     };
   });
@@ -350,6 +413,8 @@ export function closeModal() {
   root.innerHTML = '';
 }
 
+const MORALE_FACE = (m) => (m >= 70 ? '😊' : m >= 45 ? '😐' : '😠');
+
 export function openCrewModal() {
   if (!state) return;
   const rows = state.crew.filter((c) => c.status !== 'dead').map((c) => {
@@ -361,16 +426,24 @@ export function openCrewModal() {
       const tag = cap === 0 ? ' (no room)' : full ? ' (full)' : '';
       return `<option value="${k}" ${c.station === k ? 'selected' : ''} ${full || cap === 0 ? 'disabled' : ''}>${def.label}${def.bonusRole === c.role ? ' ★' : ''}${tag}</option>`;
     }).join('');
+    const initials = c.name.split(' ').map((w) => w[0]).join('').slice(0, 2);
+    const traits = (c.traits || []).map((t) => TRAITS[t]
+      ? `<span class="traitchip" title="${TRAITS[t].label}: ${TRAITS[t].desc}">${TRAITS[t].icon}</span>` : '').join('');
+    const xpNeed = c.skill * 40;
     return `<tr class="${away ? 'away' : ''}">
-      <td>${ROLE_ICON[c.role] || '•'} ${c.name}</td>
-      <td><span class="rolechip">${c.role} ${'▮'.repeat(c.skill)}</span></td>
-      <td><div class="bar"><div class="fill hp" style="width:${c.hp}%"></div></div> ${Math.round(c.hp)}%</td>
-      <td>${away ? (c.status === 'mission' ? 'On mission' : 'At outpost') : `<select data-crew="${c.id}">${opts}</select>`}</td>
+      <td><span class="portrait role-${c.role}">${initials}</span> ${c.name}<span class="sub-dim">, ${c.age}</span></td>
+      <td><span class="rolechip" title="${c.xp || 0}/${xpNeed} XP to next level">${c.role} ${'▮'.repeat(c.skill)}</span></td>
+      <td>${traits || '—'}</td>
+      <td title="Health ${Math.round(c.hp)}% · Morale ${Math.round(c.morale ?? 70)}%">
+        <div class="bar"><div class="fill hp" style="width:${c.hp}%"></div></div> ${MORALE_FACE(c.morale ?? 70)}</td>
+      <td>${away ? (c.status === 'mission' ? 'On mission' : 'At colony') : `<select data-crew="${c.id}">${opts}</select>`}</td>
     </tr>`;
   }).join('');
   const m = modal(`<h2>👥 CREW ROSTER</h2>
-    <p>Assign crew to stations. A ★ marks the station matching their specialty — they are twice as effective there. Badly hurt crew (&lt;40%) work at half speed; send them to rest or the medbay.</p>
-    <div class="tabwrap"><table class="crewtab"><tr><th>NAME</th><th>ROLE</th><th>HEALTH</th><th>STATION</th></tr>${rows}</table></div>
+    <p>A ★ marks the station matching a specialist's trade — they are twice as effective there. Hover a trait icon
+    to see what it does. Crew earn experience from expeditions, kills and completed objectives; low morale slows
+    everyone down, so keep them fed and victorious.</p>
+    <div class="tabwrap"><table class="crewtab"><tr><th>NAME</th><th>ROLE</th><th>TRAITS</th><th>COND.</th><th>STATION</th></tr>${rows}</table></div>
     <div class="modal-actions"><button data-close>Done</button></div>`);
   m.querySelectorAll('select[data-crew]').forEach((s) => {
     s.onchange = () => A.assign(+s.dataset.crew, s.value);
@@ -384,29 +457,32 @@ function crewPicker(candidates, checkedCount) {
       ${ROLE_ICON[c.role] || '•'} ${c.name} — ${c.role} ${'▮'.repeat(c.skill)} · ${Math.round(c.hp)}% HP</label>`).join('') + `</div>`;
 }
 
-export function openExpeditionModal() {
+export function openExpeditionModal(kind = 'expedition') {
   const p = currentPlanet();
   const candidates = aboardCrew().filter((c) => c.hp > 30);
-  const m = modal(`<h2>🧭 EXPEDITION — ${p.name}</h2>
-    <p>Choose a ground team (2–4). Scientists and soldiers boost yields; higher hazard means injuries are likely.
-    Duration ≈ ${Math.round(20 + p.hazard * 8)}s. Crew on the ground can't crew ship stations.</p>
+  const deep = kind === 'deep';
+  const m = modal(`<h2>${deep ? '🏺 DEEP EXPLORATION' : '🧭 EXPEDITION'} — ${p.name}</h2>
+    <p>${deep
+    ? 'Choose a team (2–4) to enter the site. It is dangerous down there — but ruins hold science, credits and artifacts for the codex. Survivalists shrug off hazards; the lucky find more.'
+    : `Choose a ground team (2–4). Scientists and soldiers boost yields; higher hazard means injuries are likely. Duration ≈ ${Math.round(20 + p.hazard * 8)}s. Crew on the ground can't crew ship stations.`}</p>
     ${crewPicker(candidates, 2)}
-    <div class="modal-actions"><button data-close>Cancel</button><button data-go class="warn">Launch shuttle</button></div>`);
+    <div class="modal-actions"><button data-close>Cancel</button><button data-go class="warn">${deep ? 'Enter the site' : 'Launch shuttle'}</button></div>`);
   m.querySelector('[data-close]').onclick = closeModal;
   m.querySelector('[data-go]').onclick = () => {
     const ids = [...m.querySelectorAll('input:checked')].map((i) => +i.value).slice(0, 4);
     if (ids.length < 2) { banner('SELECT AT LEAST 2 CREW', true, 1600); return; }
     closeModal();
-    A.expedition(ids);
+    if (deep) A.deepExplore(ids); else A.expedition(ids);
   };
 }
 
 export function openOutpostModal() {
   const p = currentPlanet();
   const candidates = aboardCrew().filter((c) => c.hp > 30);
-  const m = modal(`<h2>🏕 ESTABLISH OUTPOST — ${p.name}</h2>
-    <p>Costs <b>${OUTPOST_COST} alloys</b>. Choose 2–3 settlers to staff it permanently — they leave the ship and
-    produce food, alloys and fuel every day. Botanists and engineers make the best settlers.</p>
+  const m = modal(`<h2>🏕 ESTABLISH COLONY — ${p.name}</h2>
+    <p>Costs <b>${outpostCost()} alloys</b>. Choose 2–3 settlers to staff it permanently — they leave the ship and
+    produce food, alloys and fuel every day. Colonies grow over time: settlements open trade markets, towns and
+    cities produce far more. Botanists and engineers make the best settlers.</p>
     ${crewPicker(candidates, 2)}
     <div class="modal-actions"><button data-close>Cancel</button><button data-go class="warn">Found outpost</button></div>`);
   m.querySelector('[data-close]').onclick = closeModal;
@@ -459,6 +535,95 @@ export function openShipSelect(defaultId = 'horizon') {
   };
 }
 
+// ── Research tree ──
+export function openResearchModal() {
+  if (!state) return;
+  const branches = {};
+  Object.entries(TECHS).forEach(([id, t]) => { (branches[t.branch] ||= []).push([id, t]); });
+  const cols = Object.entries(branches).map(([branch, techs]) => `
+    <div class="techcol"><h3>${branch.toUpperCase()}</h3>` + techs.map(([id, t]) => {
+    const done = hasTech(id);
+    const locked = t.requires && !hasTech(t.requires);
+    const afford = state.science >= t.cost;
+    return `<button class="tech ${done ? 'done' : locked ? 'locked' : ''}" data-tech="${id}"
+      ${done || locked || !afford ? 'disabled' : ''}
+      title="${locked ? 'Requires: ' + TECHS[t.requires].name : t.desc}">
+      ${t.icon} ${t.name} <span class="cost">${done ? '✓' : locked ? '🔒' : t.cost + '🔬'}</span>
+      <small>${t.desc}</small></button>`;
+  }).join('') + `</div>`).join('');
+  const m = modal(`<h2>🔬 RESEARCH — ${fmt(state.science)} science available</h2>
+    <p>Science comes from scans, probes, expeditions, deep explorations and discoveries. Each branch unlocks in order.</p>
+    <div class="techgrid">${cols}</div>
+    <div class="modal-actions"><button data-close>Close</button></div>`);
+  m.querySelectorAll('[data-tech]').forEach((b) => {
+    b.onclick = () => { A.research(b.dataset.tech); sfx.chime(); openResearchModal(); };
+  });
+  m.querySelector('[data-close]').onclick = closeModal;
+}
+
+// ── Codex of discoveries ──
+export function openCodexModal() {
+  if (!state) return;
+  const entries = [...state.codex].reverse().map((e) => `
+    <div class="codexrow"><div class="codexicon">${e.icon}</div>
+      <div><b>${e.title}</b> <span class="sub-dim">· day ${e.day}</span>
+      <div class="sub">${e.text}</div></div></div>`).join('');
+  const m = modal(`<h2>📖 CODEX — ${state.codex.length} entries</h2>
+    <p>${state.codex.length ? 'Everything remarkable your voyage has uncovered.'
+    : 'Empty, for now. Scan golden worlds, probe living planets and deep-explore ruins, signals and wonders to fill it.'}</p>
+    ${entries}
+    <div class="modal-actions"><button data-close>Close</button></div>`);
+  m.querySelector('[data-close]').onclick = closeModal;
+}
+
+// ── Trade market ──
+export function openTradeModal() {
+  if (!state || !canTradeHere()) return;
+  const rows = Object.keys(PRICE_BASE).map((res) => {
+    const price = state.market[res] * PRICE_BASE[res];
+    const buy = Math.ceil(price * 1.15);
+    const sell = Math.floor(price * 0.85);
+    const trend = state.market[res] > 1.25 ? '📈' : state.market[res] < 0.8 ? '📉' : '';
+    const icon = { fuel: '⛽', alloys: '🔩', food: '🌾' }[res];
+    return `<div class="traderow">
+      <span class="tname">${icon} ${res} ${trend}</span>
+      <span class="tstock">×${fmt(state.resources[res])}</span>
+      <button data-trade="${res}" data-qty="-5" ${state.resources[res] < 5 ? 'disabled' : ''}>Sell 5 (+${sell * 5}💠)</button>
+      <button data-trade="${res}" data-qty="5" ${state.credits < buy * 5 ? 'disabled' : ''}>Buy 5 (−${buy * 5}💠)</button>
+    </div>`;
+  }).join('');
+  const m = modal(`<h2>💠 LOCAL MARKET — ${fmt(state.credits)} credits</h2>
+    <p>Prices move with the living galaxy: raids spike alloys, blights spike food, disruptions spike fuel.
+    📈 marks a seller's market, 📉 a buyer's.</p>
+    <div id="trade-rows">${rows}</div>
+    <div class="modal-actions"><button data-close>Done</button></div>`);
+  m.querySelectorAll('[data-trade]').forEach((b) => {
+    b.onclick = () => A.trade(b.dataset.trade, +b.dataset.qty);
+  });
+  m.querySelector('[data-close]').onclick = closeModal;
+}
+// Re-render trade rows in place after a transaction.
+export function refreshTradeModal() {
+  if ($('trade-rows')) openTradeModal();
+}
+
+// ── Story event with choices ──
+export function openEventModal(ev) {
+  const m = modal(`<h2>⚡ ${ev.title}</h2>
+    <p>${ev.text}</p>
+    <div class="actions">` + ev.choices.map((c, i) => `
+      <button data-choice="${i}">${c.label}${c.hint ? `<small>${c.hint}</small>` : ''}</button>`).join('') +
+    `</div>`, { closable: false });
+  m.querySelectorAll('[data-choice]').forEach((b) => {
+    b.onclick = () => {
+      const choice = ev.choices[+b.dataset.choice];
+      closeModal();
+      choice.apply();
+      renderAll();
+    };
+  });
+}
+
 export function openHelp(isIntro) {
   const m = modal(`<h2>${isIntro ? '🚀 ARK HORIZON' : '❓ HOW TO PLAY'}</h2>
     <p><b>You command the ark ship <i>Horizon</i></b> — the last hope of your people. Somewhere in this
@@ -471,8 +636,11 @@ export function openHelp(isIntro) {
     <p><b>⚔ Combat:</b> hostile aliens ambush you in deep space. Shields absorb hits until they collapse;
     then the hull and ship systems take damage. Put soldiers on gunnery, engineers on damaged systems,
     a pilot at the helm to dodge — or make an emergency jump if engines still work.</p>
-    <p><b>🏕 Expand:</b> planets with habitability ≥ ${OUTPOST_HAB_MIN}% can host outposts (${OUTPOST_COST} alloys)
-    that deliver daily supplies. The golden world needs ${COLONY_COST} alloys and ${COLONY_CREW_MIN}+ living crew to colonize.</p>
+    <p><b>🏕 Expand:</b> planets with habitability ≥ ${OUTPOST_HAB_MIN}% can host colonies (${outpostCost()} alloys)
+    that deliver daily supplies and grow into trading cities. The golden world needs ${COLONY_COST} alloys and ${COLONY_CREW_MIN}+ living crew to colonize.</p>
+    <p><b>🌌 The galaxy lives:</b> pirates raid, prices move, colonies call for help and strange things drift
+    between the stars. Objectives appear in the left panel — chase them for credits and science, spend science
+    in 🔬 Research, and log every discovery in the 📖 Codex. Explore planets in stages: scan → probe → land → go deep.</p>
     <p class="hint" style="margin-top:4px">Drag to orbit the camera · scroll to zoom · click stars, planets & enemies to interact.</p>
     <div class="modal-actions"><button data-close class="warn">${isIntro ? 'Take command' : 'Close'}</button></div>`,
   { closable: !isIntro });

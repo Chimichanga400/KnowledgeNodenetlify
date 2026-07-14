@@ -62,12 +62,27 @@ with stereo panning derived from world position. Mobile automatically uses
 lower pixel ratio, 2× MSAA, smaller shadow maps and fewer asteroids; if the
 frame rate sags for a few seconds, render resolution steps down once.
 
+## The living galaxy
+
+Once per game day (`js/galaxysim.js`) the galaxy evolves on its own: pirates
+raid systems (raising danger and alloy prices), disruptions chain into food
+crises and emergency missions, colonies grow from landing sites into cities
+that open trade markets and post their own jobs, distress calls and bounties
+appear and expire, and story events interrupt with FTL-style choices. Prices
+drift with supply and demand (💠 credits are earned from bounties, salvage,
+trade and discoveries). Planets reveal themselves in stages — orbital scan →
+probe → landing → deep exploration of ruins, signals and galactic wonders —
+feeding 🔬 science into a 16-tech research tree (ending in terraforming) and
+📖 codex entries. Crew are individuals: ages, traits, experience levels and
+morale that all feed back into how well the ship runs.
+
 ## Code layout
 
 | File | Purpose |
 |---|---|
 | `js/data.js` | Constants, balance numbers, seeded RNG, name generators |
 | `js/state.js` | Game state, procedural galaxy generation, derived stats, save/load |
+| `js/galaxysim.js` | Living galaxy: daily events, chained consequences, quests, colonies, market, story choices |
 | `js/scene.js` | All Three.js rendering: views, ship/planet/alien models, effects |
 | `js/combat.js` | Wave-based combat encounter logic |
 | `js/sim.js` | Once-per-second simulation (food, repairs, missions, outposts) |

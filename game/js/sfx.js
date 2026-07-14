@@ -26,7 +26,9 @@ function ensure() {
 }
 
 export function unlock() {
-  if (ensure() && ctx.state === 'suspended') ctx.resume();
+  if (!ensure()) return;
+  if (ctx.state === 'suspended') ctx.resume().then(() => startHum());
+  else startHum();
 }
 
 const ready = () => ctx && ctx.state === 'running';
@@ -78,6 +80,58 @@ export function hit(pan = 0) {
   o.frequency.exponentialRampToValueAtTime(70, t + 0.12);
   o.connect(out(pan, 0.2, t, 0.14));
   o.start(t); o.stop(t + 0.15);
+}
+
+// Two-tone red-alert klaxon at combat start.
+export function alarm() {
+  if (!ready()) return;
+  const t = ctx.currentTime;
+  for (let i = 0; i < 3; i++) {
+    const o = ctx.createOscillator();
+    o.type = 'square';
+    o.frequency.setValueAtTime(i % 2 ? 520 : 390, t + i * 0.28);
+    const g = out(0, 0.07, t + i * 0.28, 0.24);
+    o.connect(g);
+    o.start(t + i * 0.28); o.stop(t + i * 0.28 + 0.25);
+  }
+}
+
+// Soft ascending chime for discoveries and research.
+export function chime() {
+  if (!ready()) return;
+  const t = ctx.currentTime;
+  [523, 659, 784].forEach((f, i) => {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    o.connect(out(0, 0.08, t + i * 0.09, 0.5));
+    o.start(t + i * 0.09); o.stop(t + i * 0.09 + 0.5);
+  });
+}
+
+// Continuous, very quiet engine hum: filtered noise + low sine drone.
+// Starts once audio is unlocked; the ship never feels dead-silent again.
+let humStarted = false;
+export function startHum() {
+  if (!ready() || humStarted) return;
+  humStarted = true;
+  const src = ctx.createBufferSource();
+  src.buffer = noiseBuf;
+  src.loop = true;
+  const f = ctx.createBiquadFilter();
+  f.type = 'lowpass';
+  f.frequency.value = 130;
+  const g = ctx.createGain();
+  g.gain.value = 0.045;
+  src.connect(f); f.connect(g); g.connect(master);
+  src.start();
+  const drone = ctx.createOscillator();
+  drone.type = 'sine';
+  drone.frequency.value = 55;
+  const g2 = ctx.createGain();
+  g2.gain.value = 0.02;
+  drone.connect(g2); g2.connect(master);
+  drone.start();
 }
 
 export function warp() {

@@ -2,9 +2,10 @@
 import {
   makeRng, pick, randInt, starName, crewName, planetName,
   ROLES, PLANET_TYPES, DAY_SECONDS, clamp, SHIP_CLASSES,
+  TRAITS, TECHS, ROOM_TYPES, OUTPOST_COST, ATMOSPHERES, WEATHERS, LIFEFORMS,
 } from './data.js';
 
-export const SAVE_KEY = 'arkhorizon-save-v2';
+export const SAVE_KEY = 'arkhorizon-save-v3';
 
 export let state = null;
 
@@ -33,6 +34,8 @@ function genPlanet(rng, star, idx, danger) {
 
   const def = PLANET_TYPES[type];
   const hab = type === 'gas' ? 0 : Math.round(def.habMax * (0.35 + rng() * 0.65));
+  // Surface attributes revealed progressively: orbital scan → probe → landing.
+  const tempBase = { barren: -40, ice: -110, toxic: 60, desert: 45, gas: -150, ocean: 8, terran: 12 }[type];
   return {
     name: planetName(star, idx),
     type,
@@ -44,9 +47,23 @@ function genPlanet(rng, star, idx, danger) {
       fuel: def.res.fuel * randInt(rng, 6, 14),
       food: def.res.food * randInt(rng, 6, 14),
     },
-    scanned: false,
+    gravity: +(0.25 + rng() * 1.9).toFixed(2),
+    tempC: Math.round(tempBase + (rng() - 0.5) * 30),
+    atmosphere: type === 'gas' ? ATMOSPHERES[5] : type === 'toxic' ? ATMOSPHERES[2]
+      : hab > 60 ? ATMOSPHERES[4] : pick(rng, ATMOSPHERES.slice(0, 4)),
+    water: type === 'ocean' ? randInt(rng, 70, 96) : type === 'ice' ? randInt(rng, 30, 60)
+      : type === 'terran' ? randInt(rng, 30, 70) : randInt(rng, 0, 12),
+    radiation: clamp(randInt(rng, 0, 3) - (hab > 50 ? 1 : 0), 0, 3),
+    weather: pick(rng, WEATHERS),
+    life: hab >= 70 ? LIFEFORMS[3] : hab >= 45 ? LIFEFORMS[2] : hab >= 20 ? LIFEFORMS[1] : LIFEFORMS[0],
+    ruins: rng() < 0.14,
+    signal: rng() < 0.1,
+    wonder: null,               // set for a few special planets at galaxy gen
+    scanStage: 0,               // 0 unknown · 1 orbital scan · 2 probe · 3 landed
+    deepDone: false,
     expeditions: 0,
     outpost: false,
+    terraformed: false,
     seed: Math.floor(rng() * 1e9),
   };
 }
@@ -88,8 +105,17 @@ function genGalaxy(rng) {
     p.habitability = randInt(rng, 86, 97);
     p.hazard = randInt(rng, 0, 1);
     p.resources.food = randInt(rng, 20, 40);
-    p.scanned = false;
+    p.scanStage = 0;
   }
+  // Place two galactic wonders on distant planets — major codex discoveries.
+  const wonders = ['Derelict Generation Ship', 'Ancient Megastructure Fragment'];
+  const candidates = systems.slice(4).flatMap((s) => s.planets).filter((p) => !p.wonder);
+  wonders.forEach((w) => {
+    if (!candidates.length) return;
+    const p = candidates.splice(Math.floor(rng() * candidates.length), 1)[0];
+    p.wonder = w;
+    p.signal = true;
+  });
   // Start system: benign, with a gas giant so the player learns fuel skimming.
   const home = systems[0];
   home.planets.forEach((p) => { p.hazard = Math.min(p.hazard, 1); });
@@ -102,23 +128,38 @@ function genGalaxy(rng) {
   return systems;
 }
 
+export function rollTraits(rng) {
+  const keys = Object.keys(TRAITS);
+  const n = rng() < 0.4 ? 2 : 1;
+  const out = [];
+  while (out.length < n) {
+    const t = pick(rng, keys);
+    if (!out.includes(t)) out.push(t);
+  }
+  return out;
+}
+
+export function makeCrewMember(rng, used, role, id) {
+  return {
+    id,
+    name: crewName(rng, used),
+    role,
+    skill: randInt(rng, 2, 4),
+    hp: 100,
+    age: randInt(rng, 22, 58),
+    traits: rollTraits(rng),
+    xp: 0,
+    morale: randInt(rng, 62, 80),
+    status: 'aboard',     // aboard | mission | outpost | dead
+    station: 'idle',
+  };
+}
+
 function genCrew(rng) {
   const used = new Set();
-  const roster = [];
   // Guaranteed coverage of every role, plus two extra hands.
   const roles = [...ROLES, 'Engineer', 'Soldier'];
-  roles.forEach((role, i) => {
-    roster.push({
-      id: i + 1,
-      name: crewName(rng, used),
-      role,
-      skill: randInt(rng, 2, 4),
-      hp: 100,
-      status: 'aboard',     // aboard | mission | outpost | dead
-      station: 'idle',
-    });
-  });
-  return roster;
+  return roles.map((role, i) => makeCrewMember(rng, used, role, i + 1));
 }
 
 // ── New game / save / load ───────────────────────────────────────
@@ -135,6 +176,13 @@ export function newGame(seed = Math.floor(Math.random() * 1e9), classId = 'horiz
       nextRoomId: cls.startRooms.length + 1,
     },
     resources: { ...cls.start },
+    credits: 40,
+    science: 0,
+    tech: { researched: [] },
+    market: { fuel: 1, alloys: 1, food: 1 },   // price multipliers, drift daily
+    quests: [],
+    codex: [],
+    chain: null,        // pending consequence of a recent galaxy event
     hull: cls.hull, hullMax: cls.hull,
     shield: 0,
     systems: { engines: { hp: 100 }, weapons: { hp: 100 }, shields: { hp: 100 }, life: { hp: 100 } },
@@ -163,7 +211,7 @@ export function loadGame() {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!s || !s.galaxy || !s.ship || s.flags.won || s.flags.lost) return null;
+    if (!s || !s.galaxy || !s.ship || !s.tech || s.flags.won || s.flags.lost) return null;
     state = s;
     return state;
   } catch { return null; }
@@ -176,10 +224,43 @@ export const aboardCrew = () => state.crew.filter((c) => c.status === 'aboard');
 export const atStation = (st) => aboardCrew().filter((c) => c.station === st);
 
 function stationPower(stationKey, bonusRole) {
-  // Each crewman contributes skill, doubled when their role matches the station.
-  return atStation(stationKey).reduce(
-    (sum, c) => sum + c.skill * (c.role === bonusRole ? 2 : 1) * (c.hp > 40 ? 1 : 0.5), 0);
+  // Skill (doubled on specialty), scaled by health, morale and traits.
+  return atStation(stationKey).reduce((sum, c) => {
+    let v = c.skill * (c.role === bonusRole ? 2 : 1) * (c.hp > 40 ? 1 : 0.5);
+    v *= 0.75 + (c.morale ?? 70) / 400;                     // 0.75×–1.0×
+    if (c.traits?.includes('tinkerer') && stationKey.startsWith('repair:')) v *= 1.25;
+    return sum + v;
+  }, 0);
 }
+
+// ── Tech, XP & morale helpers ──
+export const hasTech = (id) => state.tech.researched.includes(id);
+
+export function awardXp(c, amount) {
+  if (!c || c.status === 'dead') return;
+  c.xp = (c.xp || 0) + amount * (c.traits?.includes('fastLearner') ? 2 : 1);
+  const need = c.skill * 40;
+  if (c.xp >= need && c.skill < 5) {
+    c.xp -= need;
+    c.skill++;
+    log(`🎖 ${c.name} has grown to skill ${c.skill}.`, 'good');
+  }
+}
+
+// Shift one crew member's morale (traits modulate the impact).
+export function moraleShift(c, delta) {
+  if (!c || c.status === 'dead') return;
+  if (delta < 0 && c.traits?.includes('coward')) delta *= 2;
+  c.morale = clamp((c.morale ?? 70) + delta, c.traits?.includes('ironWill') ? 30 : 0, 100);
+}
+export function moraleAll(delta) { aliveCrew().forEach((c) => moraleShift(c, delta)); }
+export const avgMorale = () => {
+  const a = aliveCrew();
+  return a.length ? Math.round(a.reduce((s, c) => s + (c.morale ?? 70), 0) / a.length) : 0;
+};
+
+export const roomCost = (type) => Math.round(ROOM_TYPES[type].cost * (hasTech('autoForges') ? 0.7 : 1));
+export const outpostCost = () => Math.round(OUTPOST_COST * (hasTech('autoForges') ? 0.7 : 1));
 
 // ── Ship class & rooms ──
 export const shipClass = () => SHIP_CLASSES[state.ship.classId] || SHIP_CLASSES.horizon;
@@ -195,16 +276,23 @@ export const crewCapacity = () => shipClass().crewCap + roomsOf('quarters').leng
 export const yieldMult = () => 1 + shipClass().yieldBonus + roomsOf('cargo').length * 0.1;
 
 export const shieldMax = () =>
-  Math.max(10, Math.round(30 + state.systems.shields.hp * 0.5 + shipClass().shieldBonus + roomsOf('shieldcap').length * 12));
+  Math.max(10, Math.round(30 + state.systems.shields.hp * 0.5 + shipClass().shieldBonus
+    + roomsOf('shieldcap').length * 12 + (hasTech('shieldHarmonics') ? 15 : 0)));
 export const shieldRegen = () => (state.systems.shields.hp / 100) * 1.2; // per second, combat
 export const weaponDamage = () => {
   const gunnery = stationPower('gunnery', 'Soldier');
-  return (6 + gunnery * 1.6) * (0.25 + 0.75 * state.systems.weapons.hp / 100) * shipClass().weaponMult;
+  let mult = shipClass().weaponMult;
+  if (hasTech('focusedLances')) mult *= 1.15;
+  if (hasTech('targetingAI')) mult *= 1.2;
+  if (hasTech('novaBattery')) mult *= 1.25;
+  return (6 + gunnery * 1.6) * (0.25 + 0.75 * state.systems.weapons.hp / 100) * mult;
 };
+export const enemyDamageMult = () => (hasTech('pointDefense') ? 0.85 : 1);
 export const pilotBonus = () => stationPower('helm', 'Pilot'); // 0..~16
 export const repairRate = (sysKey) =>
-  stationPower('repair:' + sysKey, 'Engineer') * 1.1 * (1 + roomsOf('engineering').length * 0.25); // hp/s
-export const medbayRate = () => stationPower('medbay', 'Medic') * 1.4;
+  stationPower('repair:' + sysKey, 'Engineer') * 1.1 * (1 + roomsOf('engineering').length * 0.25)
+  * (hasTech('repairDrones') ? 1.3 : 1); // hp/s
+export const medbayRate = () => stationPower('medbay', 'Medic') * 1.4 * (hasTech('medNanites') ? 1.5 : 1);
 export const hydroRate = () => stationPower('hydro', 'Botanist') * 0.35; // food/day-ish
 
 export const currentSystem = () => state.galaxy.systems[state.loc.systemId];
@@ -224,4 +312,23 @@ export const distanceTo = (sys) => {
   const cur = currentSystem();
   return Math.hypot(sys.x - cur.x, sys.y - cur.y, sys.z - cur.z);
 };
-export const fuelCost = (sys) => Math.max(4, Math.round(distanceTo(sys) * 0.32 * shipClass().fuelMult));
+export const fuelCost = (sys) =>
+  Math.max(4, Math.round(distanceTo(sys) * 0.32 * shipClass().fuelMult * (hasTech('warpOpt') ? 0.75 : 1)));
+
+// ── Codex & science ──
+export function addCodex(icon, title, text) {
+  if (state.codex.some((e) => e.title === title)) return false;
+  state.codex.push({ day: currentDay(), icon, title, text });
+  log(`📖 Codex updated: ${title}`, 'good');
+  return true;
+}
+export function addScience(n, why) {
+  state.science += n;
+  if (why) log(`🔬 +${n} science — ${why}.`, 'info');
+}
+// Trading is possible at the home anchor, or wherever a colony has grown into a market.
+export const canTradeHere = () => {
+  const sys = currentSystem();
+  if (sys.id === 0) return true;
+  return state.outposts.some((o) => o.systemId === sys.id && (o.population ?? 0) >= 14);
+};
