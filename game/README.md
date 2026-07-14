@@ -46,6 +46,22 @@ and the ship-selection screen scrolls with a sticky launch button.
 
 Progress autosaves to `localStorage`.
 
+## Rendering pipeline
+
+HDR → bloom → ACES: the scene renders into a linear half-float buffer with
+MSAA (WebGL2 `samples`), UnrealBloom picks up anything brighter than 1.0
+(suns, engine flares, lasers), and an OutputPass applies ACES filmic tone
+mapping plus the sRGB transform. PBR materials get image-based lighting from
+a small procedural space environment prefiltered through PMREM at boot.
+PCF soft shadows are cast by the key light onto ships, interior decks and
+crew. System views are lit by a point light at the actual star; some systems
+carry a GPU-instanced asteroid belt (one draw call for ~400 rocks).
+Explosions spawn HDR flashes, debris particles and lingering smoke, hull
+hits shake the camera, and all combat sounds are synthesized in Web Audio
+with stereo panning derived from world position. Mobile automatically uses
+lower pixel ratio, 2× MSAA, smaller shadow maps and fewer asteroids; if the
+frame rate sags for a few seconds, render resolution steps down once.
+
 ## Code layout
 
 | File | Purpose |

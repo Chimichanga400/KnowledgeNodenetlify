@@ -2,6 +2,7 @@
 import * as scene from './scene.js';
 import * as ui from './ui.js';
 import * as sim from './sim.js';
+import * as sfx from './sfx.js';
 import { startCombat, updateCombat, setTarget, attemptFlee, combat } from './combat.js';
 import {
   state, newGame, loadGame, saveGame, clearSave, log,
@@ -65,6 +66,7 @@ function travel(starId) {
   target.visited = true;
   log(`Jumped to ${target.name} (−${cost} fuel).`, 'info');
   ui.banner('JUMPING…', true, 1200);
+  sfx.warp();
 
   // Ambush roll
   const rng = makeRng((state.seed ^ state.stats.jumps * 104729) >>> 0);
