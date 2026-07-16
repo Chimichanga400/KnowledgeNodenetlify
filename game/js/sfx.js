@@ -9,6 +9,16 @@
 let ctx = null;
 let master = null;
 let noiseBuf = null;
+let muted = false;
+try { muted = localStorage.getItem('arkhorizon-muted') === '1'; } catch {}
+
+export function toggleMuted() {
+  muted = !muted;
+  if (master) master.gain.value = muted ? 0 : 0.32;
+  try { localStorage.setItem('arkhorizon-muted', muted ? '1' : '0'); } catch {}
+  return muted;
+}
+export const isMuted = () => muted;
 
 function ensure() {
   if (ctx) return true;
@@ -16,7 +26,7 @@ function ensure() {
   if (!AC) return false;
   ctx = new AC();
   master = ctx.createGain();
-  master.gain.value = 0.32;
+  master.gain.value = muted ? 0 : 0.32;
   master.connect(ctx.destination);
   // 1s of cached white noise, reused by every impact/explosion
   noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);

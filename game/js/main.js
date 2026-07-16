@@ -9,7 +9,7 @@ import {
   currentSystem, currentPlanet, fuelCost, aliveCrew, aboardCrew,
   pilotBonus, shieldMax, atStation, stationCap,
   hasTech, addScience, addCodex, roomCost, outpostCost, canTradeHere,
-  labRate, moraleShift,
+  labRate, moraleShift, diffMods,
 } from './state.js';
 import {
   clamp, makeRng, randInt, COLONY_COST, COLONY_HAB_MIN,
@@ -56,7 +56,7 @@ function selectPlanet(i) {
 // ── Actions ──
 function travel(starId) {
   const target = state.galaxy.systems[starId];
-  if (!target || starId === state.loc.systemId) return;
+  if (!target || starId === state.loc.systemId || scene.isWarping()) return;
   if (state.missions.length) { ui.banner('CREW STILL ON THE GROUND', true); return; }
   const cost = fuelCost(target);
   if (state.resources.fuel < cost || state.systems.engines.hp < 25) return;
@@ -75,24 +75,29 @@ function travel(starId) {
   ui.banner('JUMPING…', true, 1200);
   sfx.warp();
 
-  // Ambush roll (a spurned pirate toll guarantees one)
+  // Ambush roll (a spurned pirate toll guarantees one; difficulty scales it)
   const rng = makeRng((state.seed ^ state.stats.jumps * 104729) >>> 0);
-  let p = 0.18 + target.danger * 0.22 - pilotBonus() * 0.015;
+  let p = (0.18 + target.danger * 0.22 - pilotBonus() * 0.015) * diffMods().ambushMult;
   if (target.cleared) p *= 0.35;
   if (firstVisit) p += 0.08;
   const forced = state.forceAmbush;
   state.forceAmbush = false;
-  if (forced || (rng() < clamp(p, 0.05, 0.9) && target.danger > 0)) {
-    ui.banner(forced ? '⚠ THE CORSAIRS COLLECT THEIR TOLL' : '⚠ AMBUSH — HOSTILES ON INTERCEPT', false, 3000);
-    startCombat(Math.max(1, target.danger), (result) => onCombatEnd(result, origin), () => {
-      ui.renderContext(); ui.renderTop();
-    });
-    ui.renderAll();
-    ui.openDrawer('right');
-    return;
-  }
-  arriveInSystem();
-  maybeAutosave(true);
+  const ambush = forced || (rng() < clamp(p, 0.05, 0.9) && target.danger > 0);
+
+  // Hyperspace cinematic: the system swap happens at the tunnel's midpoint.
+  scene.warpJump(() => {
+    if (ambush) {
+      ui.banner(forced ? '⚠ THE CORSAIRS COLLECT THEIR TOLL' : '⚠ AMBUSH — HOSTILES ON INTERCEPT', false, 3000);
+      startCombat(Math.max(1, target.danger), (result) => onCombatEnd(result, origin), () => {
+        ui.renderContext(); ui.renderTop();
+      });
+      ui.renderAll();
+      ui.openDrawer('right');
+      return;
+    }
+    arriveInSystem();
+    maybeAutosave(true);
+  });
 }
 
 // Post-jump arrival: resolve rescue/delivery objectives, then bounty hunts.
@@ -377,9 +382,15 @@ function previewShip(classId) {
   scene.showShowcase(classId);
 }
 
-function chooseShip(classId) {
-  newGame(Math.floor(Math.random() * 1e9), classId);
+function chooseShip(classId, difficulty) {
+  newGame(Math.floor(Math.random() * 1e9), classId, difficulty);
   startVoyage(false);
+}
+
+function toggleMute() {
+  const muted = sfx.toggleMuted();
+  ui.banner(muted ? '🔇 SOUND OFF' : '🔊 SOUND ON', true, 1200);
+  return muted;
 }
 
 function restart() {
@@ -393,7 +404,7 @@ const actions = {
   openGalaxy, openSystem, openInterior, selectPlanet, travel, scan, probe,
   expedition, deepExplore, drone, terraform, research, trade, skim, bonusPay,
   buildOutpost, colonize, assign, save, buildRoom, previewShip, chooseShip,
-  target: setTarget, flee: attemptFlee, newGame: restart,
+  target: setTarget, flee: attemptFlee, newGame: restart, toggleMute,
 };
 
 // Story events from the living galaxy open a choice modal (never mid-battle,

@@ -69,6 +69,13 @@ export const TECHS = {
   naniteWeave:    { branch: 'Logistics',    name: 'Nanite Hull-Weave',    cost: 55, icon: '🕷️', desc: 'Auto-repairs 2 hull per day for 1 alloy', requires: 'nutrientSynth' },
 };
 
+// ── Difficulty modes ──
+export const DIFFICULTIES = {
+  explorer: { label: 'Explorer', icon: '🌱', desc: 'Plentiful supplies · fewer ambushes · gentler hazards', resMult: 1.3, ambushMult: 0.6, riskMult: 0.7 },
+  captain:  { label: 'Captain',  icon: '⭐', desc: 'The intended balance of risk and reward',            resMult: 1.0, ambushMult: 1.0, riskMult: 1.0 },
+  survivor: { label: 'Survivor', icon: '💀', desc: 'Scarce supplies · hostile space · deadly ground',    resMult: 0.75, ambushMult: 1.35, riskMult: 1.35 },
+};
+
 // ── Living-economy base prices (credits per unit) ──
 export const PRICE_BASE = { fuel: 3, alloys: 4, food: 2 };
 

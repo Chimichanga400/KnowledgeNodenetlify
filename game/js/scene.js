@@ -22,6 +22,8 @@ const enemies = new Map();      // id -> { group, orbit }
 let clickHandler = null;
 let camGoal = null;             // { pos, target } lerp goal
 let elapsed = 0;
+let warp = null;                // active hyperspace jump { t, dur, mid, onMid, midFired }
+let streaks = null;             // reusable star-streak LineSegments (child of camera)
 
 // ── Canvas textures ──
 function glowTexture(hex, inner = 1) {
@@ -178,6 +180,7 @@ export function init(canvas) {
 
   camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 4000);
   camera.position.set(0, 20, 42);
+  scene.add(camera); // so warp streaks can ride along as a camera child
 
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
@@ -1124,6 +1127,77 @@ export function explosion(pos, scale = 1) {
   }
 }
 
+// ── Hyperspace jump cinematic ────────────────────────────────────
+// The view is hidden, star-streaks rush past the camera, a flash fires at
+// the midpoint (where the caller swaps the system), then the new view fades
+// in. Streak geometry is built once and reused; it rides as a camera child
+// so it fills the screen regardless of where the camera is.
+const STREAK_N = 240;
+function buildStreaks() {
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array(STREAK_N * 6);
+  for (let i = 0; i < STREAK_N; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = 1.5 + Math.random() * 13;
+    const z = -80 + Math.random() * 95;
+    const len = 3 + Math.random() * 8;
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    pos.set([x, y, z, x, y, z - len], i * 6);
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  streaks = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+    color: new THREE.Color(0x9fdcff).multiplyScalar(1.6),
+    transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  streaks.visible = false;
+  streaks.frustumCulled = false;
+  camera.add(streaks);
+}
+
+export const isWarping = () => !!warp;
+
+export function warpJump(onMid) {
+  if (warp) return;
+  if (!streaks) buildStreaks();
+  streaks.visible = true;
+  warp = { t: 0, dur: 2.3, mid: 1.15, onMid, midFired: false };
+}
+
+function updateWarp(dt) {
+  warp.t += dt;
+  // Streaks race toward and past the camera, wrapping behind.
+  const arr = streaks.geometry.attributes.position;
+  const dz = dt * (90 + warp.t * 60);
+  for (let i = 0; i < STREAK_N; i++) {
+    let z1 = arr.getZ(i * 2) + dz, z2 = arr.getZ(i * 2 + 1) + dz;
+    if (z2 > 10) { z1 -= 95; z2 -= 95; }
+    arr.setZ(i * 2, z1); arr.setZ(i * 2 + 1, z2);
+  }
+  arr.needsUpdate = true;
+  // Fade in fast, hold, fade out after the midpoint flash.
+  const k = warp.t < 0.4 ? warp.t / 0.4 : warp.t > warp.dur - 0.5 ? Math.max(0, (warp.dur - warp.t) / 0.5) : 1;
+  streaks.material.opacity = k;
+  if (viewGroup) viewGroup.visible = warp.t < 0.35; // old view falls away
+  if (!warp.midFired && warp.t >= warp.mid) {
+    warp.midFired = true;
+    const flash = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glowTexture(0xcfefff), transparent: true, opacity: 1,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    }));
+    flash.material.color.setScalar(2);
+    flash.position.set(0, 0, -6);
+    camera.add(flash);
+    effects.push({ obj: flash, ttl: 0.5, life: 0.5, tick: (fx, kk) => { fx.obj.material.opacity = kk; fx.obj.scale.setScalar(2 + (1 - kk) * 16); } });
+    warp.onMid && warp.onMid(); // caller swaps the system / starts combat here
+    if (viewGroup) viewGroup.visible = false; // keep the fresh view hidden until arrival
+  }
+  if (warp.t >= warp.dur) {
+    warp = null;
+    streaks.visible = false;
+    if (viewGroup) viewGroup.visible = true;
+  }
+}
+
 // Shuttle run: a small craft visibly flies ship→planet (or back) so
 // launching and returning expeditions reads as a real event.
 export function shuttleFx(planetIndex, returning = false) {
@@ -1191,6 +1265,7 @@ export function shipWorldPos() {
 // ── Frame update ──
 export function update(dt) {
   elapsed += dt;
+  if (warp) updateWarp(dt);
   // Rotate habitat ring & spokes
   const ring = shipGroup.getObjectByName('habring');
   if (ring) ring.rotation.z += dt * 0.4;
@@ -1232,7 +1307,7 @@ export function update(dt) {
     const fx = effects[i];
     fx.ttl -= dt;
     if (fx.ttl <= 0) {
-      scene.remove(fx.obj);
+      if (fx.obj.parent) fx.obj.parent.remove(fx.obj);
       if (fx.obj.geometry) fx.obj.geometry.dispose();
       if (fx.obj.material) fx.obj.material.dispose();
       effects.splice(i, 1);

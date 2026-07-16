@@ -9,7 +9,7 @@ import { combat } from './combat.js';
 import {
   SYSTEMS_DEF, STATIONS, ROLE_ICON, PLANET_TYPES, fmt,
   OUTPOST_HAB_MIN, COLONY_COST, COLONY_HAB_MIN, COLONY_CREW_MIN,
-  SHIP_CLASSES, ROOM_TYPES, TECHS, TRAITS, PRICE_BASE, colonyStage,
+  SHIP_CLASSES, ROOM_TYPES, TECHS, TRAITS, PRICE_BASE, colonyStage, DIFFICULTIES,
 } from './data.js';
 import * as sfx from './sfx.js';
 
@@ -26,6 +26,7 @@ export function initUI(actions, selection) {
   $('btn-research').onclick = () => openResearchModal();
   $('btn-codex').onclick = () => openCodexModal();
   $('btn-help').onclick = () => openHelp(false);
+  $('btn-menu').onclick = () => openMenuModal();
   $('btn-save').onclick = () => A.save();
   // Mobile drawers
   $('tab-left').onclick = () => toggleDrawer('left-panel');
@@ -522,11 +523,14 @@ export function openOutpostModal() {
 // ── Ship selection (new game) ──
 export function openShipSelect(defaultId = 'horizon') {
   let chosen = defaultId;
+  let chosenDiff = 'captain';
   const root = $('modal-root');
   root.classList.remove('hidden');
   root.classList.add('transparent');
   $('hud').classList.add('select-mode');
   root.onclick = null;
+  const diffChips = Object.entries(DIFFICULTIES).map(([id, d]) => `
+    <button class="diffchip ${id === chosenDiff ? 'sel' : ''}" data-diff="${id}" title="${d.desc}">${d.icon} ${d.label}</button>`).join('');
   const cards = Object.entries(SHIP_CLASSES).map(([id, c]) => `
     <div class="shipcard ${id === chosen ? 'sel' : ''}" data-ship="${id}">
       <div class="shipname">${c.name}</div>
@@ -542,6 +546,7 @@ export function openShipSelect(defaultId = 'horizon') {
     <div class="sstitle"><h1>CHOOSE YOUR ARK</h1>
       <p>Every hull flies the same mission — find a golden world — but each plays differently.</p></div>
     <div class="shipcards">${cards}</div>
+    <div class="diffrow">${diffChips}</div>
     <div class="sslaunch"><button class="warn" data-launch>🚀 Launch the ${SHIP_CLASSES[chosen].name}</button></div>
   </div>`;
   const launchBtn = root.querySelector('[data-launch]');
@@ -553,10 +558,16 @@ export function openShipSelect(defaultId = 'horizon') {
       A.previewShip(chosen);
     };
   });
+  root.querySelectorAll('[data-diff]').forEach((chip) => {
+    chip.onclick = () => {
+      chosenDiff = chip.dataset.diff;
+      root.querySelectorAll('.diffchip').forEach((c) => c.classList.toggle('sel', c === chip));
+    };
+  });
   launchBtn.onclick = () => {
     root.classList.remove('transparent');
     closeModal();
-    A.chooseShip(chosen);
+    A.chooseShip(chosen, chosenDiff);
   };
 }
 
@@ -654,6 +665,35 @@ export function openEventModal(ev) {
   });
 }
 
+// ── System menu: pause-screen conveniences incl. a confirmed reset ──
+export function openMenuModal() {
+  if (!state) return;
+  const m = modal(`<h2>⚙ SYSTEM MENU</h2>
+    <div class="kv"><span class="k">Voyage</span><span class="v">${SHIP_CLASSES[state.ship.classId].name} · ${(DIFFICULTIES[state.difficulty] || DIFFICULTIES.captain).label} · Day ${currentDay()}</span></div>
+    <div class="actions">
+      <button data-m="resume">▶ Resume</button>
+      <button data-m="save">💾 Save now</button>
+      <button data-m="mute">${sfx.isMuted() ? '🔊 Turn sound on' : '🔇 Turn sound off'}</button>
+      <button data-m="help">❓ How to play</button>
+      <button data-m="abandon" class="danger">🚨 Abandon voyage
+      <small>Wipes this save and returns to the hangar</small></button>
+    </div>`);
+  m.querySelectorAll('[data-m]').forEach((b) => {
+    b.onclick = () => {
+      const act = b.dataset.m;
+      if (act === 'resume') closeModal();
+      if (act === 'save') { A.save(); closeModal(); }
+      if (act === 'mute') { A.toggleMute(); openMenuModal(); }
+      if (act === 'help') openHelp(false);
+      if (act === 'abandon') {
+        if (b.dataset.armed) { A.newGame(); return; }
+        b.dataset.armed = '1';
+        b.innerHTML = '⚠ Tap again to confirm<small>All progress on this voyage will be lost</small>';
+      }
+    };
+  });
+}
+
 // Pop-up when an away team returns — the payoff moment deserves more
 // than a log line. Falls back to a banner if another modal is open.
 export function openMissionResult(kind, msg) {
@@ -692,10 +732,13 @@ export function openHelp(isIntro) {
 }
 
 export function openGameOver(reason) {
+  const diff = DIFFICULTIES[state.difficulty] || DIFFICULTIES.captain;
   modal(`<h2>💀 THE VOYAGE ENDS</h2>
     <p>${reason}</p>
+    <p><b>${SHIP_CLASSES[state.ship.classId].name}</b> · ${diff.icon} ${diff.label} difficulty</p>
     <p>Days survived: <b>${currentDay()}</b> · Systems visited: <b>${state.galaxy.systems.filter((s) => s.visited).length}</b> ·
-    Hostiles destroyed: <b>${state.stats.kills}</b> · Expeditions: <b>${state.stats.expeditions}</b></p>
+    Hostiles destroyed: <b>${state.stats.kills}</b> · Expeditions: <b>${state.stats.expeditions}</b> ·
+    Codex entries: <b>${state.codex.length}</b></p>
     <div class="modal-actions"><button data-new class="danger">Start a new voyage</button></div>`,
   { closable: false }).querySelector('[data-new]').onclick = () => A.newGame();
   document.querySelector('.modal').classList.add('gameover');
@@ -706,8 +749,9 @@ export function openVictory(planetName) {
     <p>The shuttles descend through clean air onto <b>${planetName}</b>. After ${currentDay()} days adrift,
     your people set foot on a world they can finally call home. The ark <i>Horizon</i> will watch from
     orbit as the first city rises.</p>
+    <p><b>${SHIP_CLASSES[state.ship.classId].name}</b> · ${(DIFFICULTIES[state.difficulty] || DIFFICULTIES.captain).icon} ${(DIFFICULTIES[state.difficulty] || DIFFICULTIES.captain).label} difficulty</p>
     <p>Hostiles destroyed: <b>${state.stats.kills}</b> · Expeditions: <b>${state.stats.expeditions}</b> ·
-    Outposts founded: <b>${state.outposts.length}</b> · Survivors: <b>${aliveCrew().length}</b></p>
+    Colonies founded: <b>${state.outposts.length}</b> · Codex entries: <b>${state.codex.length}</b> · Survivors: <b>${aliveCrew().length}</b></p>
     <div class="modal-actions"><button data-new class="warn">Play again</button></div>`,
   { closable: false }).querySelector('[data-new]').onclick = () => A.newGame();
   document.querySelector('.modal').classList.add('victory');

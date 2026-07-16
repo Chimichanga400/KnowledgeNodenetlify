@@ -2,7 +2,7 @@
 import {
   state, log, aliveCrew, aboardCrew, repairRate, medbayRate, hydroRate, labRate,
   shieldMax, roomsOf, yieldMult, crewCapacity, hasTech, awardXp, moraleShift,
-  moraleAll, addScience, addCodex,
+  moraleAll, addScience, addCodex, diffMods,
 } from './state.js';
 import { DAY_SECONDS, FOOD_PER_CREW_DAY, randInt, makeRng, pick, clamp, colonyStage } from './data.js';
 import { galaxyDayTick } from './galaxysim.js';
@@ -162,7 +162,7 @@ export function resolveMission(m) {
   // Hazard rolls: survivalists and medical nanites halve the risk.
   let injuries = 0, deaths = 0;
   team.forEach((c) => {
-    let risk = p.hazard * 0.13 - skill * 0.004;
+    let risk = (p.hazard * 0.13 - skill * 0.004) * diffMods().riskMult;
     if (c.traits?.includes('survivalist')) risk *= 0.5;
     if (hasTech('medNanites')) risk *= 0.5;
     if (rng() < risk) {
@@ -231,7 +231,7 @@ function resolveDeepExploration(m) {
   // Harsher hazard than a survey — they are going *into* something.
   let injuries = 0, deaths = 0;
   team.forEach((c) => {
-    let risk = (p.hazard + 1) * 0.12;
+    let risk = (p.hazard + 1) * 0.12 * diffMods().riskMult;
     if (c.traits?.includes('survivalist')) risk *= 0.5;
     if (hasTech('medNanites')) risk *= 0.5;
     if (rng() < risk) {

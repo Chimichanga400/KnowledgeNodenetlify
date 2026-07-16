@@ -3,6 +3,7 @@ import {
   makeRng, pick, randInt, starName, crewName, planetName,
   ROLES, PLANET_TYPES, DAY_SECONDS, clamp, SHIP_CLASSES,
   TRAITS, TECHS, ROOM_TYPES, OUTPOST_COST, ATMOSPHERES, WEATHERS, LIFEFORMS,
+  DIFFICULTIES,
 } from './data.js';
 
 export const SAVE_KEY = 'arkhorizon-save-v3';
@@ -163,20 +164,22 @@ function genCrew(rng) {
 }
 
 // ── New game / save / load ───────────────────────────────────────
-export function newGame(seed = Math.floor(Math.random() * 1e9), classId = 'horizon') {
+export function newGame(seed = Math.floor(Math.random() * 1e9), classId = 'horizon', difficulty = 'captain') {
   const rng = makeRng(seed);
   const cls = SHIP_CLASSES[classId] || SHIP_CLASSES.horizon;
+  const diff = DIFFICULTIES[difficulty] || DIFFICULTIES.captain;
   state = {
     seed,
     time: 0,
+    difficulty: DIFFICULTIES[difficulty] ? difficulty : 'captain',
     view: 'system',
     ship: {
       classId,
       rooms: cls.startRooms.map((type, i) => ({ id: i + 1, type, slot: i })),
       nextRoomId: cls.startRooms.length + 1,
     },
-    resources: { ...cls.start },
-    credits: 40,
+    resources: Object.fromEntries(Object.entries(cls.start).map(([k, v]) => [k, Math.round(v * diff.resMult)])),
+    credits: Math.round(40 * diff.resMult),
     science: 0,
     tech: { researched: [] },
     market: { fuel: 1, alloys: 1, food: 1 },   // price multipliers, drift daily
@@ -235,6 +238,7 @@ function stationPower(stationKey, bonusRole) {
 
 // ── Tech, XP & morale helpers ──
 export const hasTech = (id) => state.tech.researched.includes(id);
+export const diffMods = () => DIFFICULTIES[state.difficulty] || DIFFICULTIES.captain;
 
 export function awardXp(c, amount) {
   if (!c || c.status === 'dead') return;
