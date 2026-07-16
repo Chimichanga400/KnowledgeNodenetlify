@@ -221,6 +221,8 @@ function deepExplore(crewIds) {
     endsAt: state.time + 26,
   });
   log(`Deep exploration team descending toward the ${p.wonder ? 'structure' : p.ruins ? 'ruins' : 'signal source'} on ${p.name}.`, 'warn');
+  scene.shuttleFx(state.loc.planetIndex, false);
+  ui.banner('🛫 SHUTTLE AWAY', true, 1800);
   ui.renderAll();
 }
 
@@ -282,6 +284,8 @@ function expedition(crewIds) {
     endsAt: state.time + Math.round(20 + p.hazard * 8),
   });
   log(`Shuttle away — ${team.length} crew descending to ${p.name}.`, 'info');
+  scene.shuttleFx(state.loc.planetIndex, false);
+  ui.banner('🛫 SHUTTLE AWAY', true, 1800);
   ui.renderAll();
 }
 
@@ -483,7 +487,15 @@ function loop(now) {
   while (simAcc >= 1) {
     simAcc -= 1;
     const finished = sim.tick(combat.active);
-    finished.forEach((m) => sim.resolveMission(m));
+    finished.forEach((m) => {
+      const msg = sim.resolveMission(m);
+      // Fly the shuttle home and pop the results so the payoff is felt.
+      if (state.view === 'system' && m.systemId === state.loc.systemId) {
+        scene.shuttleFx(m.planetIndex, true);
+      }
+      if (combat.active) ui.banner('TEAM RETURNED — SEE LOG', true, 2400);
+      else ui.openMissionResult(m.kind, msg);
+    });
     if (finished.length) ui.renderAll();
     if (aliveCrew().length === 0) {
       gameOver('The last of the crew is gone. The Horizon drifts on, silent and empty.');

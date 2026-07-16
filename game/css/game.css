@@ -57,7 +57,12 @@ h3:first-child { margin-top: 0; }
   font-size: 13px;
 }
 #topbar .brand { color: var(--cyan); font-weight: 700; letter-spacing: .25em; font-size: 14px; text-shadow: 0 0 12px var(--cyan-dim); }
-#topbar .res span { color: #fff; font-weight: 600; }
+#topbar .res {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 3px 10px; white-space: nowrap;
+}
+#topbar .res span { color: #fff; font-weight: 600; font-variant-numeric: tabular-nums; }
 #topbar .bars { display: flex; gap: 12px; margin-left: auto; }
 .barwrap { display: flex; align-items: center; gap: 6px; }
 .barlabel { font-size: 10px; letter-spacing: .1em; color: var(--text-dim); }
@@ -211,6 +216,27 @@ select {
 .role-Botanist { background: #5dff9d; } .role-Medic { background: #f0f4f8; }
 .traitchip { font-size: 14px; margin-right: 3px; cursor: help; }
 .paybtn { padding: 1px 6px; font-size: 11px; margin-left: 4px; vertical-align: middle; }
+
+/* Combat damage report */
+.damage-report { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 10px; }
+.syschip {
+  font-size: 11.5px; padding: 3px 8px; border-radius: 12px; font-weight: 600;
+  border: 1px solid rgba(93,255,157,.35); color: var(--green); background: rgba(93,255,157,.06);
+}
+.syschip.low { border-color: rgba(255,184,77,.5); color: var(--amber); background: rgba(255,184,77,.09); }
+.syschip.crit {
+  border-color: var(--red); color: var(--red); background: rgba(255,85,102,.14);
+  animation: pulse 0.8s infinite;
+}
+.critline { color: var(--red); font-size: 12px; font-weight: 700; margin-bottom: 8px; animation: pulse 1s infinite; }
+
+/* Prime directive + intro goal callout */
+.missionrow.goal { border-left-color: var(--green); background: rgba(93,255,157,.06); font-weight: 700; }
+.missionrow.goal .sub { font-weight: 400; }
+.goalbox {
+  border: 1px solid rgba(93,255,157,.4); background: rgba(93,255,157,.07);
+  border-radius: 6px; padding: 10px 14px; margin: 10px 0; line-height: 1.6; font-size: 13.5px;
+}
 .techgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .techcol h3 { margin-top: 0; }
 button.tech { width: 100%; text-align: left; margin-bottom: 6px; position: relative; }
@@ -275,6 +301,7 @@ button.tech.locked { opacity: .4; }
     font-size: 12px; align-content: center;
   }
   #topbar .brand { letter-spacing: .14em; font-size: 12px; width: 100%; text-align: center; display: none; }
+  #topbar .res { padding: 2px 7px; font-size: 11.5px; gap: 3px; border-radius: 10px; }
   #topbar .bars { margin-left: 0; gap: 8px; order: 5; }
   .bar { width: 64px; height: 8px; }
   .barlabel { font-size: 9px; }
@@ -283,7 +310,7 @@ button.tech.locked { opacity: .4; }
 
   /* Side panels become slide-in drawers */
   #left-panel, #right-panel {
-    top: 88px; bottom: 96px; z-index: 12;
+    top: 116px; bottom: 96px; z-index: 12;
     width: min(84vw, 320px);
     transition: transform .25s ease;
   }
@@ -305,7 +332,7 @@ button.tech.locked { opacity: .4; }
   /* Log: shorter, smaller */
   #log { height: 84px; font-size: 10.5px; padding: 6px 9px; left: 6px; right: 6px; bottom: 6px; }
 
-  #alert-banner { top: 96px; font-size: 14px; padding: 8px 18px; letter-spacing: .18em; max-width: 92vw; text-align: center; }
+  #alert-banner { top: 122px; font-size: 14px; padding: 8px 18px; letter-spacing: .18em; max-width: 92vw; text-align: center; }
 
   /* Modals */
   .modal { padding: 14px 14px; max-height: 86vh; }

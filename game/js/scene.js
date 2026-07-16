@@ -650,7 +650,7 @@ export function showSystem(sys, selectedIndex) {
   }
 
   sys.planets.forEach((p, i) => {
-    const orbitR = 10 + i * 7.5;
+    const orbitR = 14 + i * 7.5; // first orbit clears the star's corona
     const holder = new THREE.Group();
     holder.rotation.y = (p.seed % 628) / 100;
     const size = p.size * (p.type === 'gas' ? 1.9 : 1.15);
@@ -726,10 +726,16 @@ export function focusPlanet(index) {
   const wp = new THREE.Vector3();
   entry.mesh.getWorldPosition(wp);
   const size = entry.mesh.geometry.parameters.radius;
-  shipGroup.position.copy(wp).add(new THREE.Vector3(size + 4, size * 0.6 + 1, size + 3));
+  // Park on the planet's night side, away from the star (which sits at the
+  // origin), and never let the ship drift inside the corona.
+  const outward = wp.clone().setY(0).normalize();
+  shipGroup.position.copy(wp)
+    .addScaledVector(outward, size + 4)
+    .add(new THREE.Vector3(0, size * 0.6 + 1, size * 0.5));
+  if (shipGroup.position.length() < 13) shipGroup.position.setLength(13);
   shipGroup.rotation.y = -0.6;
   goCamera(
-    wp.clone().add(new THREE.Vector3(size * 2 + 8, size + 4, size * 2 + 9)),
+    wp.clone().addScaledVector(outward, size * 2 + 9).add(new THREE.Vector3(0, size + 4, size * 1.5 + 5)),
     wp.clone(),
   );
   // Freeze orbits while inspecting so the camera target stays put
@@ -1116,6 +1122,47 @@ export function explosion(pos, scale = 1) {
       },
     });
   }
+}
+
+// Shuttle run: a small craft visibly flies ship→planet (or back) so
+// launching and returning expeditions reads as a real event.
+export function shuttleFx(planetIndex, returning = false) {
+  if (viewName !== 'system') return;
+  const entry = sysPlanets[planetIndex];
+  if (!entry) return;
+  const planetPos = entry.mesh.getWorldPosition(new THREE.Vector3());
+  const shipPos = shipWorldPos();
+  const from = returning ? planetPos : shipPos;
+  const to = returning ? shipPos.clone() : planetPos;
+  const grp = new THREE.Group();
+  const body = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.8, 6),
+    new THREE.MeshStandardMaterial({ color: 0xd8e4f0, metalness: 0.4, roughness: 0.5 }),
+  );
+  body.rotation.x = Math.PI / 2;
+  grp.add(body);
+  const flare = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: glowTexture(0x37e5ff), transparent: true, opacity: 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  flare.material.color.setScalar(1.5);
+  flare.position.z = -0.55;
+  flare.scale.setScalar(0.9);
+  grp.add(flare);
+  grp.position.copy(from);
+  scene.add(grp);
+  const lift = new THREE.Vector3(0, 2.5, 0); // gentle arc
+  effects.push({
+    obj: grp, ttl: 2.4, life: 2.4,
+    tick: (fx, k) => {
+      const t = 1 - k;
+      fx.obj.position.lerpVectors(from, to, t)
+        .addScaledVector(lift, Math.sin(t * Math.PI));
+      fx.obj.lookAt(to);
+      const shrink = returning ? 0.4 + t * 0.6 : 1 - t * 0.6;
+      fx.obj.scale.setScalar(shrink);
+    },
+  });
 }
 
 export function shieldFlash() {

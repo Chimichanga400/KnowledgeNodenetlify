@@ -94,9 +94,12 @@ export function renderLeft() {
     }).join('')
     + `<div class="stationrow" title="Average crew morale — low morale slows every station"><span>Morale</span><span class="cnt">${morIcon} ${mor}%</span></div>`;
 
-  // Objectives (quests from the living galaxy)
-  $('quests-h').classList.toggle('hidden', !state.quests.length);
-  $('quests').innerHTML = state.quests.map((q) => {
+  // Objectives: the prime directive is always pinned on top.
+  $('quests-h').classList.remove('hidden');
+  const goal = `<div class="missionrow quest goal">🌍 PRIME DIRECTIVE
+    <div class="sub">Find a <b>golden world</b> (habitability ≥ ${COLONY_HAB_MIN}%) in the outer systems,
+    then found a colony there (${COLONY_COST}🔩 + ${COLONY_CREW_MIN} crew alive).</div></div>`;
+  $('quests').innerHTML = goal + state.quests.map((q) => {
     const sys = state.galaxy.systems[q.systemId];
     const icon = { rescue: '🆘', deliver: '📦', hunt: '☠' }[q.type];
     const here = q.systemId === state.loc.systemId;
@@ -350,6 +353,20 @@ function wireSystem(el) {
 function combatPanel() {
   let html = `<div class="wavetag">⚔ WAVE ${combat.wave} / ${combat.totalWaves}</div>
     <h2>UNDER ATTACK</h2><div class="subtitle">Click an enemy to focus fire</div>`;
+
+  // Damage report: per-system chips — amber when strained, pulsing red when
+  // critical — so what needs repair is readable at a glance mid-fight.
+  let anyCrit = false;
+  const chips = Object.entries(SYSTEMS_DEF).map(([k, def]) => {
+    const hp = Math.round(state.systems[k].hp);
+    const cls = hp < 30 ? 'crit' : hp < 65 ? 'low' : 'ok';
+    if (hp < 30) anyCrit = true;
+    const repair = atStation('repair:' + k).length;
+    return `<span class="syschip ${cls}" title="${def.label}: ${hp}%${repair ? ` · ${repair} repairing` : ''}">${def.icon} ${hp}%${repair ? '🔧' : ''}</span>`;
+  }).join('');
+  html += `<div class="damage-report">${chips}</div>`;
+  if (anyCrit) html += `<div class="critline">⚠ SYSTEM CRITICAL — send engineers to its repair bay!</div>`;
+
   html += combat.enemies.map((e) => `
     <div class="enemyrow ${combat.targetId === e.id ? 'sel' : ''}" data-enemy="${e.id}">
       <span class="ename">☠ ${e.name}</span>
@@ -358,7 +375,7 @@ function combatPanel() {
   const gunners = atStation('gunnery').length;
   const eng = state.systems.engines.hp;
   html += `<div class="hint">
-    Gunners: <b>${gunners}</b> · Weapons ${Math.round(state.systems.weapons.hp)}% · Engines ${Math.round(eng)}%<br>
+    Gunners: <b>${gunners}</b> · shields recharge while the generator holds.<br>
     Open <b>Crew</b> to reassign people mid-fight: gunners fire faster, engineers repair damaged systems, pilots dodge.</div>`;
   html += `<div class="actions">
     <button data-act="crew">👥 Battle stations (crew)</button>
@@ -637,11 +654,25 @@ export function openEventModal(ev) {
   });
 }
 
+// Pop-up when an away team returns — the payoff moment deserves more
+// than a log line. Falls back to a banner if another modal is open.
+export function openMissionResult(kind, msg) {
+  const root = $('modal-root');
+  if (!root.classList.contains('hidden')) { banner('TEAM RETURNED — SEE LOG', true, 2400); return; }
+  const title = kind === 'deep' ? '🏺 DEEP EXPLORATION COMPLETE' : '🧭 EXPEDITION RETURNED';
+  const m = modal(`<h2>${title}</h2><p>${msg}</p>
+    <div class="modal-actions"><button data-close class="warn">Continue</button></div>`);
+  m.querySelector('[data-close]').onclick = closeModal;
+}
+
 export function openHelp(isIntro) {
   const m = modal(`<h2>${isIntro ? '🚀 ARK HORIZON' : '❓ HOW TO PLAY'}</h2>
-    <p><b>You command the ark ship <i>Horizon</i></b> — the last hope of your people. Somewhere in this
-    cluster is a <b>golden world</b> (habitability ≥ ${COLONY_HAB_MIN}%). Find it and found a colony before
-    your crew starves or the ship is torn apart.</p>
+    <p><b>You command the last ark of your people.</b> The homeworld is gone. Everything that remains of
+    your civilisation is aboard this ship.</p>
+    <div class="goalbox">🌍 <b>YOUR MISSION</b><br>
+    Cross the cluster and find a <b>golden world</b> — habitability <b>≥ ${COLONY_HAB_MIN}%</b> — then found a colony
+    there (${COLONY_COST} alloys, ${COLONY_CREW_MIN}+ crew alive). The best candidates orbit distant, dangerous stars.
+    You lose if the hull fails or the whole crew dies. Your mission is always pinned atop <b>OBJECTIVES</b>.</div>
     <p><b>🌌 Explore:</b> jump between stars on the galaxy map (costs fuel), scan planets, and send
     expeditions down for alloys, fuel and food. Skim gas giants when fuel runs low.</p>
     <p><b>👥 Crew:</b> everyone can be assigned to a station — gunnery, helm, repair bays, medbay,
