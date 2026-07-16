@@ -931,6 +931,7 @@ function figureTarget(c, idx) {
   else if (st === 'gunnery') pos = inRooms('gunnery');
   else if (st === 'medbay') pos = inRooms('medbay');
   else if (st === 'hydro') pos = inRooms('hydro');
+  else if (st === 'lab') pos = inRooms('lab');
   else if (st === 'repair:engines') pos = L.roomPos.get('engine');
   else if (st === 'repair:weapons') pos = inRooms('gunnery') || L.roomPos.get('engine');
   else if (st === 'repair:shields') pos = inRooms('shieldcap') || L.roomPos.get('engine');

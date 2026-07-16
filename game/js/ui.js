@@ -295,7 +295,10 @@ function planetDetail(p) {
   }
   if (stage >= 2) {
     html += `<button data-act="exped" ${idle.length < 2 ? 'disabled' : ''}>🧭 Send expedition
-      <small>${idle.length < 2 ? 'Need 2 healthy crew aboard' : 'Gather resources · ' + Math.round(20 + p.hazard * 8) + 's · hazard risk'}</small></button>`;
+      <small>${idle.length < 2 ? 'Need 2 healthy crew aboard' : 'Max yield · ' + Math.round(20 + p.hazard * 8) + 's · crew at risk (hazard ' + ['none', 'low', 'high', 'severe'][p.hazard] + ')'}</small></button>`;
+    const droneOk = state.resources.fuel >= 2 && state.resources.alloys >= 1;
+    html += `<button data-act="drone" ${droneOk ? '' : 'disabled'}>🛸 Drone extraction
+      <small>${droneOk ? '2 fuel + 1 alloy · instant & safe, but low yield' : 'Needs 2 fuel and 1 alloy'}</small></button>`;
   }
   if (stage >= 3 && (p.ruins || p.signal || p.wonder) && !p.deepDone) {
     html += `<button data-act="deep" class="warn" ${idle.length < 2 ? 'disabled' : ''}>🏺 Deep exploration
@@ -333,6 +336,7 @@ function wireSystem(el) {
       if (act === 'probe') A.probe();
       if (act === 'exped') openExpeditionModal('expedition');
       if (act === 'deep') openExpeditionModal('deep');
+      if (act === 'drone') A.drone();
       if (act === 'skim') A.skim();
       if (act === 'outpost') openOutpostModal();
       if (act === 'terraform') A.terraform();
@@ -435,7 +439,8 @@ export function openCrewModal() {
       <td><span class="rolechip" title="${c.xp || 0}/${xpNeed} XP to next level">${c.role} ${'▮'.repeat(c.skill)}</span></td>
       <td>${traits || '—'}</td>
       <td title="Health ${Math.round(c.hp)}% · Morale ${Math.round(c.morale ?? 70)}%">
-        <div class="bar"><div class="fill hp" style="width:${c.hp}%"></div></div> ${MORALE_FACE(c.morale ?? 70)}</td>
+        <div class="bar"><div class="fill hp" style="width:${c.hp}%"></div></div> ${MORALE_FACE(c.morale ?? 70)}
+        ${!away && (c.morale ?? 70) < 75 ? `<button class="paybtn" data-pay="${c.id}" title="Bonus pay: 10 credits → +15 morale" ${state.credits < 10 ? 'disabled' : ''}>💠</button>` : ''}</td>
       <td>${away ? (c.status === 'mission' ? 'On mission' : 'At colony') : `<select data-crew="${c.id}">${opts}</select>`}</td>
     </tr>`;
   }).join('');
@@ -447,6 +452,9 @@ export function openCrewModal() {
     <div class="modal-actions"><button data-close>Done</button></div>`);
   m.querySelectorAll('select[data-crew]').forEach((s) => {
     s.onchange = () => A.assign(+s.dataset.crew, s.value);
+  });
+  m.querySelectorAll('[data-pay]').forEach((b) => {
+    b.onclick = () => A.bonusPay(+b.dataset.pay);
   });
   m.querySelector('[data-close]').onclick = closeModal;
 }
@@ -608,13 +616,18 @@ export function refreshTradeModal() {
 }
 
 // ── Story event with choices ──
+// Choices may carry a `requirement()` check — unmet options render disabled
+// with the reason shown, so the player sees what a better-prepared ship
+// could have done.
 export function openEventModal(ev) {
   const m = modal(`<h2>⚡ ${ev.title}</h2>
     <p>${ev.text}</p>
-    <div class="actions">` + ev.choices.map((c, i) => `
-      <button data-choice="${i}">${c.label}${c.hint ? `<small>${c.hint}</small>` : ''}</button>`).join('') +
-    `</div>`, { closable: false });
-  m.querySelectorAll('[data-choice]').forEach((b) => {
+    <div class="actions">` + ev.choices.map((c, i) => {
+    const ok = !c.requirement || c.requirement();
+    const hint = ok ? c.hint : `🔒 ${c.reqHint || 'Requirements not met'}`;
+    return `<button data-choice="${i}" ${ok ? '' : 'disabled'}>${c.label}${hint ? `<small>${hint}</small>` : ''}</button>`;
+  }).join('') + `</div>`, { closable: false });
+  m.querySelectorAll('[data-choice]:not([disabled])').forEach((b) => {
     b.onclick = () => {
       const choice = ev.choices[+b.dataset.choice];
       closeModal();

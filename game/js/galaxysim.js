@@ -332,6 +332,114 @@ function rollStoryEvent(rng) {
     });
   }
 
+  // Requirement-gated dilemmas: preparation opens better options.
+  pool.push({
+    title: 'Class-X Solar Flare',
+    text: 'An unexpected stellar eruption is heading directly for the ship. The shields can absorb it — if the generators can take the strain.',
+    choices: [
+      {
+        label: 'Route emergency power to shields',
+        hint: '−10 fuel, no damage',
+        requirement: () => state.resources.fuel >= 10,
+        reqHint: 'Needs 10 fuel in reserve',
+        apply: () => {
+          state.resources.fuel -= 10;
+          log('The shields flare white and hold. Fuel reserves take the hit instead of the hull.', 'good');
+        },
+      },
+      {
+        label: 'Brace for impact',
+        hint: 'Risk serious hull damage',
+        apply: () => {
+          const dmg = randInt(rng, 10, 24);
+          state.hull = Math.max(1, state.hull - dmg);
+          state.systems[pick(rng, ['shields', 'life'])].hp = Math.max(0,
+            state.systems.shields.hp - randInt(rng, 5, 15));
+          log(`The flare tears across the hull plating — ${dmg} hull damage and scorched systems.`, 'bad');
+        },
+      },
+      {
+        label: 'Fly a sensor probe into the flare',
+        hint: '+12 science, minor hull scarring',
+        requirement: () => aboardCrew().some((c) => c.role === 'Scientist' && c.hp > 30),
+        reqHint: 'Needs a healthy Scientist aboard',
+        apply: () => {
+          addScience(12, 'in-situ stellar flare telemetry');
+          state.hull = Math.max(1, state.hull - 8);
+          moraleAll(3);
+          log('Riding the shockwave, your scientist maps the eruption from inside. Textbooks will cite this day.', 'good');
+        },
+      },
+    ],
+  });
+
+  pool.push({
+    title: 'Derelict Cryo-Pod',
+    text: 'A tumbling escape pod, decades old. One cryo-bed still shows faint life signs — barely.',
+    choices: [
+      {
+        label: 'Attempt revival',
+        hint: 'A medic could save them — new crew if it works',
+        requirement: () => aboardCrew().some((c) => c.role === 'Medic' && c.hp > 30),
+        reqHint: 'Needs a healthy Medic aboard',
+        apply: () => {
+          if (aliveCrew().filter((c) => c.status !== 'outpost').length >= crewCapacity()) {
+            state.credits += 20;
+            log('Revived — but with no bunks free, they ask to be dropped at the next port, leaving a reward.', 'info');
+            return;
+          }
+          const used = new Set(state.crew.map((c) => c.name));
+          const nc = makeCrewMember(makeRng(state.seed ^ state.nextId), used,
+            pick(rng, ['Pilot', 'Soldier', 'Scientist', 'Medic']), state.nextId++);
+          nc.morale = 55;
+          state.crew.push(nc);
+          moraleAll(5);
+          log(`${nc.name} (${nc.role}) wakes from a ${randInt(rng, 20, 60)}-year sleep and joins the crew.`, 'good');
+        },
+      },
+      {
+        label: 'Salvage the pod\'s systems',
+        hint: '+12 alloys — the sleeper won\'t survive extraction',
+        apply: () => {
+          state.resources.alloys += 12;
+          moraleAll(-5);
+          log('The pod is stripped for parts. Nobody meets each other\'s eyes in the cargo bay.', 'bad');
+        },
+      },
+      { label: 'Leave it sealed', hint: 'Let them sleep', apply: () => log('The pod drifts on, its passenger still dreaming.', 'info') },
+    ],
+  });
+
+  pool.push({
+    title: 'Unstable Ice Asteroid',
+    text: 'A fractured asteroid of water ice and frozen volatiles, groaning with internal pressure. A skilled hand could crack it safely.',
+    choices: [
+      {
+        label: 'Controlled demolition mining',
+        hint: '+15 fuel, +10 food (ice & organics)',
+        requirement: () => aboardCrew().some((c) => c.role === 'Engineer' && c.hp > 30),
+        reqHint: 'Needs a healthy Engineer aboard',
+        apply: () => {
+          state.resources.fuel += 15;
+          state.resources.food += 10;
+          log('Textbook demolition — the asteroid splits along clean fracture lines. Tanks and pantry both topped up.', 'good');
+        },
+      },
+      {
+        label: 'Crack it with the main guns',
+        hint: 'Crude: some yield, chance of shrapnel',
+        apply: () => {
+          state.resources.fuel += 7;
+          if (rng() < 0.4 - luck) {
+            state.hull = Math.max(1, state.hull - 7);
+            log('The asteroid shatters violently — ice shrapnel rakes the hull (−7).', 'warn');
+          } else log('The asteroid bursts. Skimmers recover a modest 7 fuel.', 'info');
+        },
+      },
+      { label: 'Not worth the risk', hint: 'Pass by', apply: () => log('The groaning berg tumbles past.', 'info') },
+    ],
+  });
+
   pool.push({
     title: 'Refugee Convoy',
     text: 'Three battered shuttles hail you, low on air and hope, fleeing a raided colony.',

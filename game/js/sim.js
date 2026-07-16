@@ -1,6 +1,6 @@
 // ── Background simulation: runs once per second ─────────────────
 import {
-  state, log, aliveCrew, aboardCrew, repairRate, medbayRate, hydroRate,
+  state, log, aliveCrew, aboardCrew, repairRate, medbayRate, hydroRate, labRate,
   shieldMax, roomsOf, yieldMult, crewCapacity, hasTech, awardXp, moraleShift,
   moraleAll, addScience, addCodex,
 } from './state.js';
@@ -71,7 +71,7 @@ export function tick(inCombat) {
   if (day !== lastDay) {
     lastDay = day;
     const eaters = aliveCrew().filter((c) => c.status === 'aboard' || c.status === 'mission').length;
-    const need = eaters * FOOD_PER_CREW_DAY;
+    const need = Math.ceil(eaters * FOOD_PER_CREW_DAY * (hasTech('nutrientSynth') ? 0.8 : 1));
     if (state.resources.food >= need) {
       state.resources.food -= need;
       if (starving) { starving = false; log('Food reserves restored. The crew eats again.', 'good'); }
@@ -102,6 +102,26 @@ export function tick(inCombat) {
     if (state.outposts.length && day % 3 === 0) {
       log(`Colonies delivered supplies (day ${day}).`, 'good');
     }
+    // Staffed laboratories publish daily findings.
+    const lab = labRate();
+    if (lab > 0) {
+      const sci = Math.round(lab * 0.4);
+      if (sci > 0) { state.science += sci; log(`🔬 Laboratory research yields +${sci} science.`, 'info'); }
+    }
+    // Nanite hull-weave: passive repair, paid in alloys.
+    if (hasTech('naniteWeave') && state.hull < state.hullMax && state.resources.alloys >= 1) {
+      state.resources.alloys -= 1;
+      state.hull = clamp(state.hull + 2, 0, state.hullMax);
+    }
+    // Downtime: off-duty crew slowly recover their spirits…
+    aboardCrew().forEach((c) => { if (c.station === 'idle') moraleShift(c, 3); });
+    // …while burnt-out crew on stations may walk off the job.
+    aboardCrew().forEach((c) => {
+      if (c.station !== 'idle' && (c.morale ?? 70) < 30 && rng() < 0.25) {
+        c.station = 'idle';
+        log(`⚠ ${c.name} is exhausted and has walked off their station. Give them downtime or bonus pay.`, 'bad');
+      }
+    });
     // The galaxy lives its own life once a day.
     galaxyDayTick(day);
   }

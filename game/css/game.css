@@ -210,6 +210,7 @@ select {
 .role-Soldier { background: #ff5566; } .role-Scientist { background: #6b9fff; }
 .role-Botanist { background: #5dff9d; } .role-Medic { background: #f0f4f8; }
 .traitchip { font-size: 14px; margin-right: 3px; cursor: help; }
+.paybtn { padding: 1px 6px; font-size: 11px; margin-left: 4px; vertical-align: middle; }
 .techgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
 .techcol h3 { margin-top: 0; }
 button.tech { width: 100%; text-align: left; margin-bottom: 6px; position: relative; }

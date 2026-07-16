@@ -9,6 +9,7 @@ import {
   currentSystem, currentPlanet, fuelCost, aliveCrew, aboardCrew,
   pilotBonus, shieldMax, atStation, stationCap,
   hasTech, addScience, addCodex, roomCost, outpostCost, canTradeHere,
+  labRate, moraleShift,
 } from './state.js';
 import {
   clamp, makeRng, randInt, COLONY_COST, COLONY_HAB_MIN,
@@ -61,6 +62,9 @@ function travel(starId) {
   if (state.resources.fuel < cost || state.systems.engines.hp < 25) return;
 
   state.resources.fuel -= cost;
+  if (hasTech('ramjet')) state.resources.fuel += 3;
+  // Warp strain: crew on active stations tire with every jump.
+  aboardCrew().forEach((c) => { if (c.station !== 'idle') moraleShift(c, -3); });
   state.stats.jumps++;
   const origin = state.loc.systemId;
   state.loc.systemId = starId;
@@ -138,7 +142,7 @@ function scan() {
   const p = currentPlanet();
   if (!p || p.scanStage >= 1) return;
   p.scanStage = hasTech('deepSensors') ? 2 : 1;
-  addScience(2, `orbital survey of ${p.name}`);
+  addScience(2 + Math.floor(labRate() * 0.3), `orbital survey of ${p.name}`);
   const sci = aboardCrew().filter((c) => c.role === 'Scientist' && c.hp > 30).length;
   if (sci) {
     // Scientists squeeze extra value out of survey data.
@@ -167,6 +171,39 @@ function probe() {
   log(`🛰 Probe down on ${p.name}: ${p.life.toLowerCase()}, radiation ${['minimal', 'low', 'high', 'lethal'][p.radiation]}, ${p.water}% surface water.`, 'info');
   if (p.life === 'Complex fauna') addCodex('🦎', `Fauna of ${p.name}`, 'Probe cameras captured multicellular life moving on the surface — proof the galaxy is not empty.');
   ui.renderAll();
+}
+
+// Drone extraction: the safe, low-yield alternative to an away team.
+function drone() {
+  const p = currentPlanet();
+  if (!p || p.scanStage < 2) return;
+  if (state.resources.fuel < 2 || state.resources.alloys < 1) return;
+  const total = p.resources.alloys + p.resources.fuel + p.resources.food;
+  if (total <= 0) { ui.banner('SITE DEPLETED', true, 1500); return; }
+  state.resources.fuel -= 2;
+  state.resources.alloys -= 1;
+  const rng = makeRng((state.seed ^ Math.floor(state.time) * 977) >>> 0);
+  const gain = {};
+  const parts = [];
+  for (const res of ['alloys', 'fuel', 'food']) {
+    gain[res] = Math.round(p.resources[res] * (0.05 + rng() * 0.04));
+    p.resources[res] = Math.max(0, p.resources[res] - gain[res]);
+    state.resources[res] += gain[res];
+    if (gain[res]) parts.push(`${gain[res]} ${res}`);
+  }
+  log(`🛸 Drone run on ${p.name}: ${parts.length ? '+' + parts.join(', +') : 'came back empty'}. No crew risked.`, parts.length ? 'good' : 'info');
+  ui.renderAll();
+}
+
+// Bonus pay: buy back a tired crew member's goodwill.
+function bonusPay(crewId) {
+  const c = state.crew.find((x) => x.id === crewId);
+  if (!c || c.status === 'dead' || state.credits < 10) return;
+  state.credits -= 10;
+  moraleShift(c, 15);
+  log(`💠 Bonus pay for ${c.name} (+15 morale).`, 'info');
+  ui.renderTop(); ui.renderLeft();
+  ui.openCrewModal();
 }
 
 function deepExplore(crewIds) {
@@ -350,7 +387,7 @@ function restart() {
 // ── Actions table handed to the UI ──
 const actions = {
   openGalaxy, openSystem, openInterior, selectPlanet, travel, scan, probe,
-  expedition, deepExplore, terraform, research, trade, skim,
+  expedition, deepExplore, drone, terraform, research, trade, skim, bonusPay,
   buildOutpost, colonize, assign, save, buildRoom, previewShip, chooseShip,
   target: setTarget, flee: attemptFlee, newGame: restart,
 };

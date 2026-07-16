@@ -24,6 +24,7 @@ export const STATIONS = {
   'repair:life':    { label: 'Repair · Life Support', bonusRole: 'Engineer' },
   medbay:    { label: 'Medbay',          bonusRole: 'Medic' },
   hydro:     { label: 'Hydroponics',     bonusRole: 'Botanist' },
+  lab:       { label: 'Laboratory',      bonusRole: 'Scientist' },
 };
 
 export const SYSTEMS_DEF = {
@@ -63,6 +64,9 @@ export const TECHS = {
   colonyCharters: { branch: 'Colonization', name: 'Colony Charters',      cost: 25, icon: '📜', desc: 'Colonies grow twice as fast', requires: 'hydroDomes' },
   medNanites:     { branch: 'Colonization', name: 'Medical Nanites',      cost: 40, icon: '💉', desc: 'Medbay +50%, expedition injuries halved', requires: 'colonyCharters' },
   terraforming:   { branch: 'Colonization', name: 'Terraforming',         cost: 60, icon: '🌍', desc: 'Unlock: raise a planet’s habitability by +25 (once per planet, 100 alloys)', requires: 'medNanites' },
+  ramjet:         { branch: 'Logistics',    name: 'Bussard Ramjet',       cost: 30, icon: '🌬️', desc: '+3 fuel scooped on every jump' },
+  nutrientSynth:  { branch: 'Logistics',    name: 'Nutrient Synthesizers', cost: 40, icon: '🥫', desc: 'Crew food consumption −20%', requires: 'ramjet' },
+  naniteWeave:    { branch: 'Logistics',    name: 'Nanite Hull-Weave',    cost: 55, icon: '🕷️', desc: 'Auto-repairs 2 hull per day for 1 alloy', requires: 'nutrientSynth' },
 };
 
 // ── Living-economy base prices (credits per unit) ──
@@ -98,6 +102,7 @@ export const ROOM_TYPES = {
   engineering: { label: 'Engineering Bay',  icon: '🔧', color: 0xffd86b, cost: 35, desc: '+25% repair speed' },
   shieldcap:   { label: 'Shield Capacitor', icon: '🛡️', color: 0x6bd5ff, cost: 35, desc: '+12 max shields' },
   cargo:       { label: 'Cargo Pod',        icon: '📦', color: 0xc9a25d, cost: 30, desc: '+10% expedition yield' },
+  lab:         { label: 'Laboratory',       icon: '🔬', color: 0x9f7dff, cost: 35, station: 'lab', desc: '+2 scientist slots · staffed labs generate science daily and boost scans' },
 };
 
 // ── Selectable ship classes ──

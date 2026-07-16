@@ -269,7 +269,7 @@ export const roomsOf = (type) => state.ship.rooms.filter((r) => r.type === type)
 export function stationCap(st) {
   if (st === 'idle' || st.startsWith('repair:')) return 99;
   if (st === 'helm') return 2;
-  const roomType = { gunnery: 'gunnery', medbay: 'medbay', hydro: 'hydro' }[st];
+  const roomType = { gunnery: 'gunnery', medbay: 'medbay', hydro: 'hydro', lab: 'lab' }[st];
   return roomType ? roomsOf(roomType).length * 2 : 0;
 }
 export const crewCapacity = () => shipClass().crewCap + roomsOf('quarters').length * 2;
@@ -294,6 +294,7 @@ export const repairRate = (sysKey) =>
   * (hasTech('repairDrones') ? 1.3 : 1); // hp/s
 export const medbayRate = () => stationPower('medbay', 'Medic') * 1.4 * (hasTech('medNanites') ? 1.5 : 1);
 export const hydroRate = () => stationPower('hydro', 'Botanist') * 0.35; // food/day-ish
+export const labRate = () => stationPower('lab', 'Scientist');           // science generation & scan bonus
 
 export const currentSystem = () => state.galaxy.systems[state.loc.systemId];
 export const currentPlanet = () => {
@@ -312,8 +313,11 @@ export const distanceTo = (sys) => {
   const cur = currentSystem();
   return Math.hypot(sys.x - cur.x, sys.y - cur.y, sys.z - cur.z);
 };
+// A pilot at the helm trims jump fuel by up to 15%.
 export const fuelCost = (sys) =>
-  Math.max(4, Math.round(distanceTo(sys) * 0.32 * shipClass().fuelMult * (hasTech('warpOpt') ? 0.75 : 1)));
+  Math.max(4, Math.round(distanceTo(sys) * 0.32 * shipClass().fuelMult
+    * (hasTech('warpOpt') ? 0.75 : 1)
+    * (1 - Math.min(0.15, pilotBonus() * 0.012))));
 
 // ── Codex & science ──
 export function addCodex(icon, title, text) {
