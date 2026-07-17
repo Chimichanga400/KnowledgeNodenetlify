@@ -226,7 +226,7 @@ import * as THREE from 'three';
 
 const WORLD = {
   OCEAN_SIZE:      4000,   // side length of the visible ocean plane
-  OCEAN_SEGMENTS:  128,    // plane resolution for the wave vertex shader
+  OCEAN_SEGMENTS:  256,    // plane resolution for the wave vertex shader
   BOUNDARY:        2000,   // ship distance from origin that triggers re-centering
   FOG_COLOR:       0xb8d0dd,
 };
@@ -342,9 +342,11 @@ scene.add(sky);
  * Keep both copies in sync if you tune the constants!
  */
 function waveHeight(x, z, t) {
-  return Math.sin(x * 0.045 + t * 0.8)  * 0.60 +
-         Math.sin(z * 0.075 + t * 1.1)  * 0.40 +
-         Math.sin((x + z) * 0.030 + t * 0.6) * 0.35;
+  return Math.sin(x * 0.045 + t * 0.8)  * 0.55 +          // long swell
+         Math.sin(z * 0.075 + t * 1.1)  * 0.35 +          // cross swell
+         Math.sin((x + z) * 0.030 + t * 0.6) * 0.30 +     // diagonal roller
+         Math.sin(x * 0.10 - t * 1.5)   * 0.12 +          // short chop
+         Math.sin((z - x * 0.7) * 0.13 + t * 1.9) * 0.09; // cross chop
 }
 
 /** Approximate wave surface slope via central differences (for ship pitch/roll). */
@@ -378,9 +380,11 @@ const oceanMat = new THREE.ShaderMaterial({
 
     // GLSL twin of the JS waveHeight() — keep in sync.
     float waveHeight(vec2 p, float t) {
-      return sin(p.x * 0.045 + t * 0.8)  * 0.60 +
-             sin(p.y * 0.075 + t * 1.1)  * 0.40 +
-             sin((p.x + p.y) * 0.030 + t * 0.6) * 0.35;
+      return sin(p.x * 0.045 + t * 0.8)  * 0.55 +
+             sin(p.y * 0.075 + t * 1.1)  * 0.35 +
+             sin((p.x + p.y) * 0.030 + t * 0.6) * 0.30 +
+             sin(p.x * 0.10 - t * 1.5)   * 0.12 +
+             sin((p.y - p.x * 0.7) * 0.13 + t * 1.9) * 0.09;
     }
 
     void main() {
@@ -402,6 +406,7 @@ const oceanMat = new THREE.ShaderMaterial({
     }
   `,
   fragmentShader: /* glsl */`
+    uniform float uTime;
     uniform vec3 uDeepColor;
     uniform vec3 uCrestColor;
     uniform vec3 uFogColor;
@@ -409,19 +414,47 @@ const oceanMat = new THREE.ShaderMaterial({
     varying vec3 vWorldPos;
     varying vec3 vNormal;
 
+    // Cheap hash-based value noise: drives per-pixel ripples and foam
+    // breakup, so the water has fine detail the vertex grid can't carry.
+    float hash(vec2 p) {
+      return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+    }
+    float vnoise(vec2 p) {
+      vec2 i = floor(p), f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(mix(hash(i),                 hash(i + vec2(1.0, 0.0)), f.x),
+                 mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+                 f.y);
+    }
+
     void main() {
       vec3 n = normalize(vNormal);
       vec3 viewDir = normalize(cameraPosition - vWorldPos);
 
-      // Base colour: deeper troughs are darker, crests brighter.
+      // Per-pixel ripple detail: two drifting noise fields perturb the
+      // geometric normal, giving small-scale sparkle without more verts.
+      float r1 = vnoise(vWorldPos.xz * 0.55 + vec2(uTime * 0.60,  uTime * 0.25));
+      float r2 = vnoise(vWorldPos.xz * 0.55 + vec2(3.71, 7.13) - vec2(uTime * 0.40, uTime * 0.50));
+      n = normalize(n + vec3(r1 - 0.5, 0.0, r2 - 0.5) * 0.35);
+
+      // Base colour: deeper troughs are darker, crests brighter, with a
+      // faint turquoise "light through the wave" lift near the tops.
       float crest = clamp(vWorldPos.y * 0.55 + 0.5, 0.0, 1.0);
       vec3 col = mix(uDeepColor, uCrestColor, crest);
+      col += vec3(0.02, 0.07, 0.06) * crest;
 
       // Fresnel rim brightening toward grazing angles (sky reflection feel).
       float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
       col = mix(col, uFogColor, fresnel * 0.55);
 
-      // Sun glitter: tight specular highlight.
+      // Whitecap foam: appears on high crests, broken up by slow-drifting
+      // noise so it reads as patches rather than solid stripes.
+      float foamNoise = vnoise(vWorldPos.xz * 0.28 + vec2(uTime * 0.12, -uTime * 0.09));
+      float foam = smoothstep(0.55, 1.10, vWorldPos.y) *
+                   smoothstep(0.38, 0.75, foamNoise);
+      col = mix(col, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 1.0) * 0.85);
+
+      // Sun glitter: tight specular highlight over the rippled normal.
       vec3 halfV = normalize(uSunDir + viewDir);
       float spec = pow(max(dot(n, halfV), 0.0), 180.0);
       col += vec3(1.0, 0.95, 0.8) * spec * 0.9;
@@ -720,6 +753,24 @@ function fireBroadside(side) {
  */
 const particleBursts = [];  // [{ points, velocities, life, maxLife, gravity }]
 
+// Soft round sprite for every particle, generated procedurally on a 2D
+// canvas (radial white→transparent gradient) — keeps points from
+// rendering as hard squares while honouring the "no external assets" rule.
+const particleSprite = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0.0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.8)');
+  grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+})();
+
 function spawnParticles(position, color, count, speed, life, size, gravity) {
   const positions = new Float32Array(count * 3);
   const velocities = new Float32Array(count * 3);
@@ -739,7 +790,7 @@ function spawnParticles(position, color, count, speed, life, size, gravity) {
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   const mat = new THREE.PointsMaterial({
     color, size, transparent: true, opacity: 1, depthWrite: false,
-    sizeAttenuation: true,
+    sizeAttenuation: true, map: particleSprite,
   });
   const points = new THREE.Points(geo, mat);
   scene.add(points);
@@ -768,6 +819,37 @@ function updateParticles(dt) {
     }
     posAttr.needsUpdate = true;
     b.points.material.opacity = b.life / b.maxLife;  // linear fade-out
+  }
+}
+
+/* ============================ SHIP WAKE =========================== */
+
+// A churning foam trail behind the stern plus bow spray at speed, built
+// on the shared particle system. Spawn rate scales with hull speed so a
+// drifting ship leaves no trail and a running ship carves a long one.
+const wake = { timer: 0 };
+const _wakeLocal = new THREE.Vector3();
+
+function updateWake(dt) {
+  if (shipState.speed < 1.2) return;      // too slow to churn the water
+  wake.timer -= dt;
+  if (wake.timer > 0) return;
+  // Faster ship ⇒ tighter spawn interval ⇒ denser, longer-lived trail.
+  wake.timer = THREE.MathUtils.clamp(0.14 - shipState.speed * 0.006, 0.05, 0.14);
+
+  // Stern churn: foam boils up just behind the transom.
+  _wakeLocal.set((Math.random() - 0.5) * 2.0, 0.15, -7.8)
+    .applyQuaternion(ship.quaternion).add(ship.position);
+  spawnParticles(_wakeLocal, 0xdfeef4, 3,
+    0.7 + shipState.speed * 0.06,   // gentle outward drift
+    2.0,                            // lingers, then fades
+    1.6, 0.05);                     // near-zero gravity: sits on the sea
+
+  // Bow spray: white water thrown off the prow once the ship has way on.
+  if (shipState.speed > 6) {
+    _wakeLocal.set((Math.random() < 0.5 ? -1 : 1) * 1.1, 0.5, 8.8)
+      .applyQuaternion(ship.quaternion).add(ship.position);
+    spawnParticles(_wakeLocal, 0xe8f4f8, 2, 2.6, 0.7, 1.1, 6);
   }
 }
 
@@ -1242,6 +1324,7 @@ function animate() {
 
   // ---- Simulation ----
   const { windDot } = updateShipPhysics(dt, elapsed);
+  updateWake(dt);
   updateCombat(dt, elapsed);
   updateParticles(dt);
 
@@ -1262,6 +1345,10 @@ function animate() {
 }
 
 animate();
+
+// Read-only debug handle for automated smoke tests (headless browser
+// assertions poke at simulation state through this object).
+window.__pirateDebug = { shipState, cannonballs, targets, particleBursts, ship, WIND_DIR };
 </script>
 </body>
 </html>
