@@ -122,6 +122,28 @@
     cursor: default;
   }
 
+  /* ---------------- Port panel (right, docked only) ---------------- */
+  #port-panel {
+    top: 50%; right: 14px; transform: translateY(-50%);
+    width: 240px; display: none; text-align: center;
+  }
+  #port-panel.visible { display: block; }
+  #port-cargo-line { font-size: 13px; margin-bottom: 10px; color: #f5e9c8; }
+  .port-btn {
+    display: block; width: 100%;
+    margin-bottom: 8px; padding: 10px 6px;
+    font-family: inherit; font-size: 13px; letter-spacing: 1px;
+    color: #14231c;
+    background: linear-gradient(180deg, #e8c86a, #b98f2e);
+    border: 1px solid #8a6a1e; border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.06s ease, filter 0.15s ease;
+  }
+  .port-btn:hover { filter: brightness(1.15); }
+  .port-btn:active { transform: scale(0.96); }
+  .port-btn:disabled { filter: grayscale(0.7) brightness(0.75); cursor: default; }
+  .port-note { font-size: 11px; color: #a89877; font-style: italic; line-height: 1.5; }
+
   /* ---------------- Help hint (bottom-right) ---------------- */
   #help { bottom: 14px; right: 14px; font-size: 11px; color: #a89877; max-width: 240px; line-height: 1.6; }
   #help b { color: #e0b64d; }
@@ -158,6 +180,7 @@
   <div class="row"><span class="label">Speed</span>       <span class="value" id="ui-speed">0.0 kn</span></div>
   <div class="row"><span class="label">Heading</span>     <span class="value" id="ui-heading">000°</span></div>
   <div class="row"><span class="label">Sails</span>       <span class="value" id="ui-sails">50%</span></div>
+  <div class="row"><span class="label">Cargo</span>       <span class="value" id="ui-cargo">0</span></div>
   <div class="row"><span class="label">Gold</span>        <span class="value gold" id="ui-gold">0</span></div>
   <div id="wind-status">Beam Reach</div>
 </div>
@@ -189,13 +212,24 @@
   </div>
 </div>
 
+<!-- ================= Port panel (visible only while docked) ================= -->
+<div id="port-panel" class="panel">
+  <h2>⚓ Port of Tortuga</h2>
+  <div id="port-cargo-line">Cargo hold: 0 crates</div>
+  <button class="port-btn" id="sell-cargo">Sell Cargo (+30 ea)</button>
+  <button class="port-btn" id="trade-run">Trade Run (pay 50 → earn 120)</button>
+  <div class="port-note">Drop sails to 0% near the pier to stay docked.
+    Set sail to weigh anchor.</div>
+</div>
+
 <!-- ================= Help panel ================= -->
 <div id="help" class="panel">
   <b>W / S</b> — sails &nbsp; <b>A / D</b> — rudder<br>
   <b>Q / E</b> — fire port / starboard &nbsp; <b>R</b> — center rudder<br>
   <b>Drag</b> the sea to orbit the camera.<br>
-  Sink barrels for gold, raid merchant ships, and sail over their floating
-  cargo to plunder it. Beware sailing into the wind — ye'll be caught in irons!
+  Sink barrels for gold, raid merchants and scoop their cargo, then dock at
+  the island pier (tan compass arrow) to sell it — or run honest trade to the
+  green beacon. Beware sailing into the wind — ye'll be caught in irons!
 </div>
 
 <!-- Three.js (latest stable) served from CDN as an ES module -->
@@ -632,6 +666,7 @@ const shipState = {
   sailDeployment: 0.5,  // 0..1 mirror of the sail slider
   rudder: 0,            // -45..45 degrees mirror of the rudder slider
   gold: 0,
+  cargo: 0,             // plundered crates in the hold (sell at port)
   cooldown: { port: 0, starboard: 0 },
 };
 
@@ -697,6 +732,185 @@ function spawnTarget() {
 
 for (let i = 0; i < COMBAT.TARGET_COUNT; i++) spawnTarget();
 
+/* ===================== PORT ISLAND & ECONOMY ====================== */
+
+/**
+ * A procedural island with a wooden pier. Dock (sail close to the pier
+ * and slow to a crawl) to open the port menu: sell plundered cargo, or
+ * pay for a trade run and deliver it to a distant glowing beacon for an
+ * honest profit — the peaceful alternative to raiding.
+ */
+const ECONOMY = {
+  CARGO_SELL_PRICE: 30,     // gold per crate sold at the pier
+  TRADE_COST: 50,           // up-front cost of a trade run
+  TRADE_REWARD: 120,        // payout on delivery
+  TRADE_DIST_MIN: 500, TRADE_DIST_MAX: 800,   // beacon distance from port
+  DELIVER_RADIUS: 30,       // how close counts as delivered
+  DOCK_RADIUS: 45,          // must be this close to the pier head...
+  DOCK_MAX_SPEED: 1.5,      // ...and this slow, to be "docked"
+  ISLAND_RADIUS: 78,        // hull keep-out circle around the island
+};
+
+const islandMats = {
+  sand:  new THREE.MeshStandardMaterial({ color: 0xd8c088, roughness: 1.0 }),
+  grass: new THREE.MeshStandardMaterial({ color: 0x4a7a3a, roughness: 1.0 }),
+  trunk: new THREE.MeshStandardMaterial({ color: 0x7a5a32, roughness: 0.9 }),
+  frond: new THREE.MeshStandardMaterial({ color: 0x2f6b2f, roughness: 0.9 }),
+  wood:  new THREE.MeshStandardMaterial({ color: 0x6a4a28, roughness: 0.9 }),
+  roof:  new THREE.MeshStandardMaterial({ color: 0xa03a28, roughness: 0.8 }),
+};
+
+const island = new THREE.Group();
+island.position.set(330, 0, 280);
+
+// Sand base + grassy hill, both simple cones sunk below the waterline.
+const sandBase = new THREE.Mesh(new THREE.ConeGeometry(72, 16, 24), islandMats.sand);
+sandBase.position.y = -3;
+island.add(sandBase);
+const hill = new THREE.Mesh(new THREE.ConeGeometry(38, 24, 16), islandMats.grass);
+hill.position.set(-8, 2, 6);
+island.add(hill);
+
+// Palm trees: tilted trunk + a crown of flattened cone "fronds".
+for (const [px, pz, lean] of [[26, -14, 0.2], [12, 24, -0.15], [-28, -20, 0.1], [30, 12, -0.25]]) {
+  const palm = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 9, 6), islandMats.trunk);
+  trunk.position.y = 4.5;
+  palm.add(trunk);
+  const crown = new THREE.Mesh(new THREE.ConeGeometry(4.2, 2.2, 7), islandMats.frond);
+  crown.position.y = 9.6;
+  palm.add(crown);
+  palm.position.set(px, 3.5, pz);
+  palm.rotation.z = lean;
+  island.add(palm);
+}
+
+// A pair of dockside huts with pyramid roofs.
+for (const [hx, hz, ry] of [[8, -34, 0.4], [-14, -30, -0.2]]) {
+  const hut = new THREE.Group();
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 6), islandMats.wood);
+  walls.position.y = 2;
+  hut.add(walls);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(5.2, 3, 4), islandMats.roof);
+  roof.position.y = 5.4;
+  roof.rotation.y = Math.PI / 4;
+  hut.add(roof);
+  hut.position.set(hx, 3.2, hz);
+  hut.rotation.y = ry;
+  island.add(hut);
+}
+
+// Pier: points from the beach toward the world origin (the spawn side),
+// so arriving players sail straight at it. dockOffset marks the pier
+// head in ISLAND-LOCAL space (world pos = island.position + dockOffset).
+const pierDir = island.position.clone().multiplyScalar(-1).setY(0).normalize();
+const pierYaw = Math.atan2(pierDir.x, pierDir.z);
+const pierLen = 42;
+const pierMid = pierDir.clone().multiplyScalar(ECONOMY.ISLAND_RADIUS - 12 + pierLen / 2);
+const pierDeck = new THREE.Mesh(new THREE.BoxGeometry(6, 0.8, pierLen), islandMats.wood);
+pierDeck.position.set(pierMid.x, 2.2, pierMid.z);
+pierDeck.rotation.y = pierYaw;
+island.add(pierDeck);
+for (let i = 0; i < 5; i++) {   // pilings marching out to sea
+  const t = ECONOMY.ISLAND_RADIUS - 10 + (i / 4) * (pierLen - 4);
+  for (const side of [-1, 1]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 7, 6), islandMats.trunk);
+    const perp = new THREE.Vector3(pierDir.z, 0, -pierDir.x);
+    post.position.copy(pierDir.clone().multiplyScalar(t))
+      .addScaledVector(perp, side * 2.4).setY(-0.8);
+    island.add(post);
+  }
+}
+const dockOffset = pierDir.clone().multiplyScalar(ECONOMY.ISLAND_RADIUS - 12 + pierLen);
+dockOffset.y = 0;
+
+scene.add(island);
+
+/** World-space position of the pier head (recomputed so re-centering is free). */
+function dockWorldPos(out) {
+  return out.copy(island.position).add(dockOffset);
+}
+
+// ------------------- Trade run delivery beacon --------------------
+const port = {
+  docked: false,
+  trade: null,   // null or { marker: Group } — marker.position is the goal
+};
+
+function startTradeRun() {
+  if (port.trade || shipState.gold < ECONOMY.TRADE_COST) return;
+  shipState.gold -= ECONOMY.TRADE_COST;
+
+  // Beacon: a tall glowing column + a bobbing ring, visible from afar.
+  const marker = new THREE.Group();
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.6, 1.6, 70, 10, 1, true),
+    new THREE.MeshBasicMaterial({
+      color: 0x66ff9a, transparent: true, opacity: 0.35,
+      side: THREE.DoubleSide, depthWrite: false }));
+  beam.position.y = 32;
+  marker.add(beam);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(6, 0.7, 8, 24),
+    new THREE.MeshStandardMaterial({
+      color: 0x66ff9a, emissive: 0x1d8a4a, roughness: 0.4 }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 1;
+  marker.add(ring);
+
+  const a = Math.random() * Math.PI * 2;
+  const d = ECONOMY.TRADE_DIST_MIN +
+            Math.random() * (ECONOMY.TRADE_DIST_MAX - ECONOMY.TRADE_DIST_MIN);
+  marker.position.set(island.position.x + Math.sin(a) * d, 0,
+                      island.position.z + Math.cos(a) * d);
+  scene.add(marker);
+  port.trade = { marker };
+  showToast('Cargo loaded — sail to the green beacon!');
+  updatePortUI();
+}
+
+function sellCargo() {
+  if (shipState.cargo <= 0) return;
+  const earnings = shipState.cargo * ECONOMY.CARGO_SELL_PRICE;
+  shipState.gold += earnings;
+  shipState.cargo = 0;
+  showToast(`Cargo sold: +${earnings} Gold!`);
+  updatePortUI();
+}
+
+/** Docking detection + trade delivery check, every frame. */
+const _dock = new THREE.Vector3();
+function updatePort(dt, elapsed) {
+  // ---- Docked state: near the pier head AND nearly stopped ----
+  dockWorldPos(_dock);
+  const dDock = Math.hypot(ship.position.x - _dock.x, ship.position.z - _dock.z);
+  const docked = dDock < ECONOMY.DOCK_RADIUS && shipState.speed < ECONOMY.DOCK_MAX_SPEED;
+  if (docked !== port.docked) {
+    port.docked = docked;
+    ui.portPanel.classList.toggle('visible', docked);
+    if (docked) showToast('Docked at Tortuga');
+  }
+  // Refresh the menu every frame while docked so button enabled-states
+  // always reflect the live gold/cargo totals.
+  if (port.docked) updatePortUI();
+
+  // ---- Active trade run: animate the beacon, check for delivery ----
+  if (port.trade) {
+    const mp = port.trade.marker.position;
+    port.trade.marker.rotation.y += dt * 0.8;
+    port.trade.marker.children[1].position.y =
+      waveHeight(mp.x, mp.z, elapsed) + 1.2;   // ring rides the swell
+    const dGoal = Math.hypot(ship.position.x - mp.x, ship.position.z - mp.z);
+    if (dGoal < ECONOMY.DELIVER_RADIUS) {
+      scene.remove(port.trade.marker);
+      port.trade = null;
+      shipState.gold += ECONOMY.TRADE_REWARD;
+      showToast(`Delivery complete: +${ECONOMY.TRADE_REWARD} Gold!`);
+      updatePortUI();
+    }
+  }
+}
+
 /* ======================= MERCHANT AI SHIPS ======================== */
 
 /**
@@ -713,7 +927,6 @@ const MERCHANT = {
   SINK_TIME: 3.0,          // seconds from fatal hit to slipping under
   WAYPOINT_MIN: 150, WAYPOINT_MAX: 400,
   SPAWN_MIN: 200, SPAWN_MAX: 420,
-  GOLD_PER_CRATE: 25,
   CRATE_COLLECT_RADIUS: 9, // sail this close to scoop cargo
   CRATE_LIFETIME: 150,     // seconds afloat before sinking away
 };
@@ -843,12 +1056,19 @@ function updateMerchants(dt, elapsed) {
     const distToWp = Math.hypot(m.waypoint.x - p.x, m.waypoint.z - p.z);
     if (distToWp < 25 || m.waypointAge > 45) {
       // New waypoints are chosen relative to the PLAYER so traders stay
-      // within raiding range instead of wandering off the map.
-      const a = Math.random() * Math.PI * 2;
-      const d = MERCHANT.WAYPOINT_MIN +
-                Math.random() * (MERCHANT.WAYPOINT_MAX - MERCHANT.WAYPOINT_MIN);
-      m.waypoint.set(ship.position.x + Math.sin(a) * d, 0,
-                     ship.position.z + Math.cos(a) * d);
+      // within raiding range instead of wandering off the map. Points on
+      // the island are rejected so routes never lead ashore.
+      let wx, wz, tries = 0;
+      do {
+        const a = Math.random() * Math.PI * 2;
+        const d = MERCHANT.WAYPOINT_MIN +
+                  Math.random() * (MERCHANT.WAYPOINT_MAX - MERCHANT.WAYPOINT_MIN);
+        wx = ship.position.x + Math.sin(a) * d;
+        wz = ship.position.z + Math.cos(a) * d;
+      } while (++tries < 8 &&
+               Math.hypot(wx - island.position.x, wz - island.position.z) <
+               ECONOMY.ISLAND_RADIUS + 60);
+      m.waypoint.set(wx, 0, wz);
       m.waypointAge = 0;
     }
 
@@ -859,6 +1079,15 @@ function updateMerchants(dt, elapsed) {
     m.heading += THREE.MathUtils.clamp(dh, -MERCHANT.TURN_RATE * dt, MERCHANT.TURN_RATE * dt);
     p.x += Math.sin(m.heading) * MERCHANT.SPEED * dt;
     p.z += Math.cos(m.heading) * MERCHANT.SPEED * dt;
+
+    // Same island keep-out as the player: slide along the shoreline.
+    const mdx = p.x - island.position.x, mdz = p.z - island.position.z;
+    const mdist = Math.hypot(mdx, mdz);
+    if (mdist < ECONOMY.ISLAND_RADIUS) {
+      const push = ECONOMY.ISLAND_RADIUS / Math.max(mdist, 0.001);
+      p.x = island.position.x + mdx * push;
+      p.z = island.position.z + mdz * push;
+    }
 
     // ---- Ride the waves like the player does ----
     p.y = waveHeight(p.x, p.z, elapsed) + 0.3;
@@ -882,9 +1111,9 @@ function updateMerchants(dt, elapsed) {
       MERCHANT.CRATE_COLLECT_RADIUS * MERCHANT.CRATE_COLLECT_RADIUS;
     if (grabbed || c.age > MERCHANT.CRATE_LIFETIME) {
       if (grabbed) {
-        shipState.gold += MERCHANT.GOLD_PER_CRATE;
+        shipState.cargo += 1;   // into the hold — sell it at the port
         spawnParticles(p.clone().setY(p.y + 1), 0xffd75e, 18, 6, 0.8, 1.6, 4);
-        showToast(`+${MERCHANT.GOLD_PER_CRATE} Gold — plunder!`);
+        showToast('Cargo crate hauled aboard! Sell it at Tortuga.');
       }
       scene.remove(c.group);   // shared geometry/materials — no dispose
       lootCrates.splice(i, 1);
@@ -1102,7 +1331,12 @@ const ui = {
   speed:   document.getElementById('ui-speed'),
   heading: document.getElementById('ui-heading'),
   sails:   document.getElementById('ui-sails'),
+  cargo:   document.getElementById('ui-cargo'),
   gold:    document.getElementById('ui-gold'),
+  portPanel:  document.getElementById('port-panel'),
+  portCargo:  document.getElementById('port-cargo-line'),
+  sellCargo:  document.getElementById('sell-cargo'),
+  tradeRun:   document.getElementById('trade-run'),
   windStatus: document.getElementById('wind-status'),
   sailSlider:   document.getElementById('sail-slider'),
   rudderSlider: document.getElementById('rudder-slider'),
@@ -1125,6 +1359,20 @@ ui.rudderSlider.addEventListener('input', () => {
 
 ui.firePort.addEventListener('click', () => fireBroadside('port'));
 ui.fireStarboard.addEventListener('click', () => fireBroadside('starboard'));
+
+ui.sellCargo.addEventListener('click', sellCargo);
+ui.tradeRun.addEventListener('click', startTradeRun);
+
+/** Refresh the port menu's cargo line and button enabled states. */
+function updatePortUI() {
+  ui.portCargo.textContent = `Cargo hold: ${shipState.cargo} crate${shipState.cargo === 1 ? '' : 's'}`;
+  ui.sellCargo.disabled = shipState.cargo <= 0;
+  ui.sellCargo.textContent = `Sell Cargo (+${ECONOMY.CARGO_SELL_PRICE} ea)`;
+  ui.tradeRun.disabled = !!port.trade || shipState.gold < ECONOMY.TRADE_COST;
+  ui.tradeRun.textContent = port.trade
+    ? 'Trade Run underway…'
+    : `Trade Run (pay ${ECONOMY.TRADE_COST} → earn ${ECONOMY.TRADE_REWARD})`;
+}
 
 /** Briefly disable + grey a fire button while its side reloads. */
 function flashButton(side) {
@@ -1216,6 +1464,19 @@ function drawCompass() {
   // rose reads like a chart (rotation measured clockwise from up).
   const windAngle = Math.atan2(WIND_DIR.x, WIND_DIR.z);
   arrow(windAngle, 'rgba(127,200,216,0.95)', 30);          // wind vector
+
+  // Bearing to the port island (sand-coloured, short) so it's findable.
+  arrow(Math.atan2(island.position.x - ship.position.x,
+                   island.position.z - ship.position.z),
+        'rgba(216,192,136,0.8)', 22);
+
+  // Bearing to the active trade-run beacon (green) when one is underway.
+  if (port.trade) {
+    const mp = port.trade.marker.position;
+    arrow(Math.atan2(mp.x - ship.position.x, mp.z - ship.position.z),
+          'rgba(102,255,154,0.95)', 36);
+  }
+
   arrow(shipState.heading, 'rgba(255,215,94,0.95)', 42);   // ship heading
 
   // Hub rivet
@@ -1315,6 +1576,19 @@ function updateShipPhysics(dt, elapsed) {
   // ---- Integrate position -----------------------------------------
   shipForward(_forward);   // refresh after the heading change
   ship.position.addScaledVector(_forward, shipState.speed * dt);
+
+  // ---- Island collision: hulls can't sail through land ------------
+  // Circle keep-out: slide the ship back to the shoreline radius and
+  // scrub speed as the keel grinds the shallows.
+  const idx = ship.position.x - island.position.x;
+  const idz = ship.position.z - island.position.z;
+  const idist = Math.hypot(idx, idz);
+  if (idist < ECONOMY.ISLAND_RADIUS) {
+    const push = ECONOMY.ISLAND_RADIUS / Math.max(idist, 0.001);
+    ship.position.x = island.position.x + idx * push;
+    ship.position.z = island.position.z + idz * push;
+    shipState.speed *= Math.pow(0.15, dt);
+  }
 
   // ---- Buoyancy: ride the wave surface with pitch & roll -----------
   const h = waveHeight(ship.position.x, ship.position.z, elapsed);
@@ -1484,6 +1758,11 @@ function verifySystemState(elapsed) {
     for (const t of targets) {
       t.group.position.x -= shiftX; t.group.position.z -= shiftZ;
     }
+    island.position.x -= shiftX;    island.position.z -= shiftZ;
+    if (port.trade) {
+      port.trade.marker.position.x -= shiftX;
+      port.trade.marker.position.z -= shiftZ;
+    }
     for (const m of merchants) {
       m.group.position.x -= shiftX; m.group.position.z -= shiftZ;
       m.waypoint.x -= shiftX;       m.waypoint.z -= shiftZ;
@@ -1510,6 +1789,14 @@ function verifySystemState(elapsed) {
     const waterY = waveHeight(bp.x, bp.z, elapsed);
     const tooFar = bp.distanceToSquared(ship.position) >
                    COMBAT.MAX_BALL_RANGE * COMBAT.MAX_BALL_RANGE;
+    // Shots that land on the island kick up sand instead of water.
+    if (Math.hypot(bp.x - island.position.x, bp.z - island.position.z) <
+        ECONOMY.ISLAND_RADIUS && bp.y < 10) {
+      spawnParticles(bp.clone(), 0xd8c088, 12, 5, 0.7, 1.6, 10);
+      scene.remove(ball.mesh);
+      cannonballs.splice(i, 1);
+      continue;
+    }
     if (bp.y < Math.min(waterY, 0) || bp.y < 0 || tooFar) {
       if (!tooFar) {
         // Splash where the ball met the sea.
@@ -1540,6 +1827,7 @@ function updateHUD(windDot) {
   const deg = (THREE.MathUtils.radToDeg(shipState.heading) % 360 + 360) % 360;
   ui.heading.textContent = `${String(Math.round(deg)).padStart(3, '0')}°`;
   ui.sails.textContent = `${Math.round(shipState.sailDeployment * 100)}%`;
+  ui.cargo.textContent = String(shipState.cargo);
   ui.gold.textContent = String(shipState.gold);
 
   const pos = pointOfSail(windDot);
@@ -1564,6 +1852,7 @@ function animate() {
   const { windDot } = updateShipPhysics(dt, elapsed);
   updateWake(dt);
   updateMerchants(dt, elapsed);
+  updatePort(dt, elapsed);
   updateCombat(dt, elapsed);
   updateParticles(dt);
 
@@ -1590,6 +1879,7 @@ animate();
 window.__pirateDebug = {
   shipState, cannonballs, targets, particleBursts, ship, WIND_DIR,
   merchants, lootCrates, spawnLootCrate, damageMerchant,
+  island, port, dockWorldPos, ECONOMY,
 };
 </script>
 </body>
