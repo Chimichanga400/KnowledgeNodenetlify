@@ -181,6 +181,7 @@
   <div class="row"><span class="label">Heading</span>     <span class="value" id="ui-heading">000°</span></div>
   <div class="row"><span class="label">Sails</span>       <span class="value" id="ui-sails">50%</span></div>
   <div class="row"><span class="label">Cargo</span>       <span class="value" id="ui-cargo">0</span></div>
+  <div class="row"><span class="label">Fleet</span>       <span class="value" id="ui-fleet">0 ships</span></div>
   <div class="row"><span class="label">Gold</span>        <span class="value gold" id="ui-gold">0</span></div>
   <div id="wind-status">Beam Reach</div>
 </div>
@@ -218,6 +219,7 @@
   <div id="port-cargo-line">Cargo hold: 0 crates</div>
   <button class="port-btn" id="sell-cargo">Sell Cargo (+30 ea)</button>
   <button class="port-btn" id="trade-run">Trade Run (pay 50 → earn 120)</button>
+  <button class="port-btn" id="hire-escort">Hire Escort Sloop (150g)</button>
   <div class="port-note">Drop sails to 0% near the pier to stay docked.
     Set sail to weigh anchor.</div>
 </div>
@@ -229,7 +231,9 @@
   <b>Drag</b> the sea to orbit the camera.<br>
   Sink barrels for gold, raid merchants and scoop their cargo, then dock at
   the island pier (tan compass arrow) to sell it — or run honest trade to the
-  green beacon. Beware sailing into the wind — ye'll be caught in irons!
+  green beacon. Hire escorts at port, or batter a merchant till she strikes
+  her colours and board her to grow yer fleet. Mind the wind — sail into it
+  and ye'll be caught in irons!
 </div>
 
 <!-- Three.js (latest stable) served from CDN as an ES module -->
@@ -997,6 +1001,7 @@ function spawnMerchant() {
     waypoint: new THREE.Vector3(),
     waypointAge: 999,        // forces a fresh waypoint on the first tick
     sinkTimer: -1,           // -1 = healthy; >= 0 = sinking countdown
+    surrendered: false,      // true once battered to her last hit point
     bobPhase: Math.random() * Math.PI * 2,
   };
   scene.add(group);
@@ -1047,6 +1052,21 @@ function updateMerchants(dt, elapsed) {
         scene.remove(m.group);
         merchants.splice(i, 1);
         spawnMerchant();
+      }
+      continue;
+    }
+
+    // ---- Surrendered: dead in the water, waiting to be boarded ----
+    if (m.surrendered) {
+      p.y = waveHeight(p.x, p.z, elapsed) + 0.3;
+      m.group.rotation.set(
+        Math.sin(elapsed * 0.8 + m.bobPhase) * 0.05,
+        m.heading,
+        Math.cos(elapsed * 0.66 + m.bobPhase) * 0.06
+      );
+      if (p.distanceToSquared(ship.position) <
+          FLEET.CAPTURE_RADIUS * FLEET.CAPTURE_RADIUS) {
+        captureMerchant(m, i);
       }
       continue;
     }
@@ -1130,6 +1150,15 @@ function damageMerchant(m, hitPos) {
   m.hp -= 1;
   spawnParticles(hitPos, 0xff7722, 30, 12, 0.8, 2.2, 12);
   spawnParticles(hitPos, 0x555555, 16, 7, 1.4, 2.6, 2);   // smoke
+  if (m.hp === 1 && !m.surrendered) {
+    // One hit from sinking: she strikes her colours and heaves to.
+    // Sail alongside to capture her — or finish the job for the bounty.
+    m.surrendered = true;
+    const flag = new THREE.Mesh(flagGeo, whiteFlagMat);
+    flag.position.set(0.9, 11.6, 1.0);
+    m.group.add(flag);
+    showToast('She strikes her colours! Sail alongside to board her.');
+  }
   if (m.hp <= 0) {
     m.sinkTimer = 0;                     // start the death plunge
     spawnParticles(m.group.position.clone().setY(2), 0xffaa33, 50, 16, 1.1, 2.8, 10);
@@ -1137,6 +1166,170 @@ function damageMerchant(m, hitPos) {
     showToast('Merchant sunk! Grab the cargo!');
   }
   return true;
+}
+
+/* ============================ FLEET =============================== */
+
+/**
+ * The player's squadron. Grow it two ways:
+ *   1. Hire escort sloops at the port (gold).
+ *   2. Batter a merchant down to its last hit point — it strikes her
+ *      colours (white flag) — then sail alongside to CAPTURE it as a
+ *      prize ship instead of sinking it.
+ * Fleet ships hold formation off the flagship's quarters and add their
+ * own guns to every broadside you fire.
+ */
+const FLEET = {
+  MAX: 3,
+  ESCORT_COST: 150,
+  TURN_RATE: 0.8,            // rad/s — nimbler than fat merchants
+  MAX_SPEED: PHYSICS.MAX_SPEED * 1.2,   // can catch up to the flagship
+  CAPTURE_RADIUS: 22,        // board a surrendered merchant this close
+  // Formation slots in flagship-local space (+X starboard, +Z forward).
+  SLOTS: [
+    new THREE.Vector3(-16, 0, -12),   // port quarter
+    new THREE.Vector3( 16, 0, -12),   // starboard quarter
+    new THREE.Vector3(  0, 0, -26),   // dead astern
+  ],
+};
+
+const sloopMats = {
+  hull: new THREE.MeshStandardMaterial({ color: 0x33231a, roughness: 0.9 }),
+  sail: new THREE.MeshStandardMaterial({
+          color: 0x2a2a30, roughness: 0.95, side: THREE.DoubleSide }),  // black sails
+};
+
+// White flag hoisted by surrendering merchants; black flag flown by
+// captured prizes. Shared geometry/materials — meshes are per-ship.
+const flagGeo = new THREE.PlaneGeometry(1.8, 1.2);
+const whiteFlagMat = new THREE.MeshStandardMaterial({
+  color: 0xf5f5f0, side: THREE.DoubleSide, roughness: 0.9 });
+const blackFlagMat = new THREE.MeshStandardMaterial({
+  color: 0x14141a, side: THREE.DoubleSide, roughness: 0.9 });
+
+/** Small pirate sloop: dark hull, single mast, black sail. */
+function buildSloop() {
+  const g = new THREE.Group();
+  const hullGeo = new THREE.BoxGeometry(3.0, 1.9, 9.0, 1, 1, 3);
+  const hp = hullGeo.attributes.position;
+  for (let i = 0; i < hp.count; i++) {
+    const t = THREE.MathUtils.clamp((hp.getZ(i) + 4.5) / 9.0, 0, 1);
+    const taper = t > 0.7 ? 1 - (t - 0.7) * 2.5 : 1;
+    hp.setX(i, hp.getX(i) * Math.max(taper, 0.15));
+  }
+  hullGeo.computeVertexNormals();
+  const hull = new THREE.Mesh(hullGeo, sloopMats.hull);
+  hull.position.y = 0.35;
+  g.add(hull);
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.2, 8.2), shipMats.deck);
+  deck.position.y = 1.35;
+  g.add(deck);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.16, 9, 8), shipMats.mast);
+  mast.position.set(0, 1.35 + 4.5, 0.6);
+  g.add(mast);
+  const sail = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 4.0), sloopMats.sail);
+  sail.position.set(0, 7.4, 0.6);
+  g.add(sail);
+  const flag = new THREE.Mesh(flagGeo, blackFlagMat);
+  flag.position.set(0.9, 10.2, 0.6);
+  g.add(flag);
+  return g;
+}
+
+const fleet = [];  // [{ group, heading, speed, bobPhase }]
+
+/** Hire an escort sloop at the port (spawns just off the pier). */
+function hireEscort() {
+  if (fleet.length >= FLEET.MAX || shipState.gold < FLEET.ESCORT_COST) return;
+  shipState.gold -= FLEET.ESCORT_COST;
+  const group = buildSloop();
+  group.position.set(
+    ship.position.x + (Math.random() - 0.5) * 30,
+    0,
+    ship.position.z - 20
+  );
+  scene.add(group);
+  fleet.push({ group, heading: shipState.heading, speed: 0,
+               bobPhase: Math.random() * Math.PI * 2 });
+  showToast('Escort sloop joins yer fleet!');
+  updatePortUI();
+}
+
+/** Convert a surrendered merchant into a fleet prize (or plunder it). */
+function captureMerchant(m, index) {
+  merchants.splice(index, 1);
+  if (fleet.length < FLEET.MAX) {
+    // Hoist the black flag over the prize and fold it into the line.
+    const flag = new THREE.Mesh(flagGeo, blackFlagMat);
+    flag.position.set(0.9, 11.6, 1.0);
+    m.group.add(flag);
+    fleet.push({ group: m.group, heading: m.heading, speed: 0,
+                 bobPhase: m.bobPhase });
+    showToast('Prize taken! She sails under yer colours now.');
+  } else {
+    // Fleet is full: strip her cargo and let her go down in memory.
+    scene.remove(m.group);
+    shipState.cargo += 2;
+    shipState.gold += 20;
+    showToast('Fleet full — stripped her cargo instead (+2 cargo, +20 gold).');
+  }
+  spawnMerchant();   // fresh trader keeps the sea busy either way
+}
+
+const _slotTarget = new THREE.Vector3();
+
+/** Formation-keeping AI for every fleet ship, each frame. */
+function updateFleet(dt, elapsed) {
+  const cosH = Math.cos(shipState.heading), sinH = Math.sin(shipState.heading);
+  for (let i = 0; i < fleet.length; i++) {
+    const e = fleet[i];
+    const p = e.group.position;
+    const slot = FLEET.SLOTS[i % FLEET.SLOTS.length];
+
+    // Formation slot in world space (flagship-local → world rotation).
+    _slotTarget.set(
+      ship.position.x + slot.x * cosH + slot.z * sinH,
+      0,
+      ship.position.z - slot.x * sinH + slot.z * cosH
+    );
+
+    const dx = _slotTarget.x - p.x, dz = _slotTarget.z - p.z;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist > 8) {
+      // Chase the slot: steer toward it, speed grows with the gap.
+      const desired = Math.atan2(dx, dz);
+      let dh = Math.atan2(Math.sin(desired - e.heading), Math.cos(desired - e.heading));
+      e.heading += THREE.MathUtils.clamp(dh, -FLEET.TURN_RATE * dt, FLEET.TURN_RATE * dt);
+      e.speed = Math.min(dist * 0.5, FLEET.MAX_SPEED);
+    } else {
+      // On station: fall in line with the flagship's course and speed.
+      let dh = Math.atan2(Math.sin(shipState.heading - e.heading),
+                          Math.cos(shipState.heading - e.heading));
+      e.heading += THREE.MathUtils.clamp(dh, -FLEET.TURN_RATE * dt, FLEET.TURN_RATE * dt);
+      e.speed += (shipState.speed - e.speed) * Math.min(1, dt * 2);
+    }
+
+    p.x += Math.sin(e.heading) * e.speed * dt;
+    p.z += Math.cos(e.heading) * e.speed * dt;
+
+    // Same island keep-out circle as everything else afloat.
+    const fdx = p.x - island.position.x, fdz = p.z - island.position.z;
+    const fdist = Math.hypot(fdx, fdz);
+    if (fdist < ECONOMY.ISLAND_RADIUS) {
+      const push = ECONOMY.ISLAND_RADIUS / Math.max(fdist, 0.001);
+      p.x = island.position.x + fdx * push;
+      p.z = island.position.z + fdz * push;
+    }
+
+    // Ride the swell.
+    p.y = waveHeight(p.x, p.z, elapsed) + 0.3;
+    e.group.rotation.set(
+      Math.sin(elapsed * 0.85 + e.bobPhase) * 0.05,
+      e.heading,
+      Math.cos(elapsed * 0.7 + e.bobPhase) * 0.06
+    );
+  }
 }
 
 /* ========================== PROJECTILES =========================== */
@@ -1181,6 +1374,32 @@ function fireBroadside(side) {
 
     // Muzzle flash: quick orange particle puff at the gun port.
     spawnParticles(pos, 0xffa030, 10, 9, 0.35, 1.6, 2);
+  }
+
+  // ---- The fleet fires with you: 2 guns per escort, same side ----
+  const _eFwd = new THREE.Vector3(), _eRight = new THREE.Vector3();
+  for (const e of fleet) {
+    _eFwd.set(Math.sin(e.heading), 0, Math.cos(e.heading));
+    _eRight.set(Math.cos(e.heading), 0, -Math.sin(e.heading));
+    for (const zOff of [2.2, -2.2]) {
+      const pos = e.group.position.clone()
+        .addScaledVector(_eFwd, zOff)
+        .addScaledVector(_eRight, outSign * 1.7)
+        .add(new THREE.Vector3(0, 1.4, 0));
+      const vel = new THREE.Vector3()
+        .copy(_eFwd).multiplyScalar(e.speed)
+        .addScaledVector(_eRight, outSign * COMBAT.CANNON_SPEED)
+        .add(new THREE.Vector3(0, COMBAT.CANNON_LIFT, 0))
+        .add(new THREE.Vector3(
+          (Math.random() - 0.5) * 3.0,
+          (Math.random() - 0.5) * 1.8,
+          (Math.random() - 0.5) * 3.0));
+      const mesh = new THREE.Mesh(ballGeo, ballMat);
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      cannonballs.push({ mesh, vel });
+      spawnParticles(pos, 0xffa030, 8, 8, 0.3, 1.4, 2);
+    }
   }
 
   playBoom();
@@ -1333,10 +1552,12 @@ const ui = {
   sails:   document.getElementById('ui-sails'),
   cargo:   document.getElementById('ui-cargo'),
   gold:    document.getElementById('ui-gold'),
+  fleet:   document.getElementById('ui-fleet'),
   portPanel:  document.getElementById('port-panel'),
   portCargo:  document.getElementById('port-cargo-line'),
   sellCargo:  document.getElementById('sell-cargo'),
   tradeRun:   document.getElementById('trade-run'),
+  hireEscort: document.getElementById('hire-escort'),
   windStatus: document.getElementById('wind-status'),
   sailSlider:   document.getElementById('sail-slider'),
   rudderSlider: document.getElementById('rudder-slider'),
@@ -1362,6 +1583,7 @@ ui.fireStarboard.addEventListener('click', () => fireBroadside('starboard'));
 
 ui.sellCargo.addEventListener('click', sellCargo);
 ui.tradeRun.addEventListener('click', startTradeRun);
+ui.hireEscort.addEventListener('click', hireEscort);
 
 /** Refresh the port menu's cargo line and button enabled states. */
 function updatePortUI() {
@@ -1372,6 +1594,11 @@ function updatePortUI() {
   ui.tradeRun.textContent = port.trade
     ? 'Trade Run underway…'
     : `Trade Run (pay ${ECONOMY.TRADE_COST} → earn ${ECONOMY.TRADE_REWARD})`;
+  ui.hireEscort.disabled =
+    fleet.length >= FLEET.MAX || shipState.gold < FLEET.ESCORT_COST;
+  ui.hireEscort.textContent = fleet.length >= FLEET.MAX
+    ? 'Fleet at full strength'
+    : `Hire Escort Sloop (${FLEET.ESCORT_COST}g) [${fleet.length}/${FLEET.MAX}]`;
 }
 
 /** Briefly disable + grey a fire button while its side reloads. */
@@ -1770,6 +1997,9 @@ function verifySystemState(elapsed) {
     for (const c of lootCrates) {
       c.group.position.x -= shiftX; c.group.position.z -= shiftZ;
     }
+    for (const e of fleet) {
+      e.group.position.x -= shiftX; e.group.position.z -= shiftZ;
+    }
     for (const b of cannonballs) {
       b.mesh.position.x -= shiftX;  b.mesh.position.z -= shiftZ;
     }
@@ -1828,6 +2058,7 @@ function updateHUD(windDot) {
   ui.heading.textContent = `${String(Math.round(deg)).padStart(3, '0')}°`;
   ui.sails.textContent = `${Math.round(shipState.sailDeployment * 100)}%`;
   ui.cargo.textContent = String(shipState.cargo);
+  ui.fleet.textContent = `${fleet.length} ship${fleet.length === 1 ? '' : 's'}`;
   ui.gold.textContent = String(shipState.gold);
 
   const pos = pointOfSail(windDot);
@@ -1852,6 +2083,7 @@ function animate() {
   const { windDot } = updateShipPhysics(dt, elapsed);
   updateWake(dt);
   updateMerchants(dt, elapsed);
+  updateFleet(dt, elapsed);
   updatePort(dt, elapsed);
   updateCombat(dt, elapsed);
   updateParticles(dt);
@@ -1880,6 +2112,7 @@ window.__pirateDebug = {
   shipState, cannonballs, targets, particleBursts, ship, WIND_DIR,
   merchants, lootCrates, spawnLootCrate, damageMerchant,
   island, port, dockWorldPos, ECONOMY,
+  fleet, FLEET, hireEscort,
 };
 </script>
 </body>
