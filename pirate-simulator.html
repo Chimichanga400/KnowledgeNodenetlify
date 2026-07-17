@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pirate Simulator — Three.js Sailing &amp; Broadside Combat</title>
+<style>
+  /* ============================================================
+     GLOBAL RESET & THEME
+     Pirate-flavoured UI: dark translucent parchment panels with
+     gold accents, layered over the full-screen WebGL canvas.
+     ============================================================ */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #06121f;
+    font-family: Georgia, 'Times New Roman', serif;
+    color: #e8d9b0;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* The WebGL canvas fills the viewport behind every UI element */
+  #game-canvas { position: fixed; inset: 0; display: block; }
+
+  /* Shared panel chrome */
+  .panel {
+    position: fixed;
+    background: rgba(10, 18, 28, 0.78);
+    border: 1px solid rgba(224, 182, 77, 0.45);
+    border-radius: 10px;
+    padding: 12px 16px;
+    backdrop-filter: blur(4px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+  }
+
+  .panel h2 {
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #e0b64d;
+    margin-bottom: 8px;
+    border-bottom: 1px solid rgba(224, 182, 77, 0.3);
+    padding-bottom: 4px;
+  }
+
+  /* ---------------- Telemetry (top-left) ---------------- */
+  #telemetry { top: 14px; left: 14px; min-width: 190px; }
+
+  #telemetry .row {
+    display: flex; justify-content: space-between;
+    font-size: 14px; line-height: 1.7;
+  }
+  #telemetry .row .label { color: #a89877; }
+  #telemetry .row .value { color: #f5e9c8; font-variant-numeric: tabular-nums; }
+  #telemetry .row .value.gold { color: #ffd75e; font-weight: bold; }
+
+  /* Point-of-sail status line ("Running", "In Irons", ...) */
+  #wind-status { margin-top: 6px; font-size: 12px; font-style: italic; color: #7fc8d8; }
+  #wind-status.irons { color: #e06a5a; }
+
+  /* ---------------- Compass (top-right) ---------------- */
+  #compass-panel { top: 14px; right: 14px; text-align: center; }
+  #compass-canvas { display: block; margin: 0 auto; }
+  #compass-legend { font-size: 11px; margin-top: 6px; color: #a89877; }
+  #compass-legend .ship-key { color: #ffd75e; }
+  #compass-legend .wind-key { color: #7fc8d8; }
+
+  /* ---------------- Helm controls (bottom-left) ---------------- */
+  #controls { bottom: 14px; left: 14px; width: 280px; }
+
+  .control-group { margin-bottom: 12px; }
+  .control-group label {
+    display: flex; justify-content: space-between;
+    font-size: 13px; color: #cbb98d; margin-bottom: 4px;
+  }
+  .control-group label span.readout { color: #f5e9c8; font-variant-numeric: tabular-nums; }
+
+  input[type="range"] {
+    width: 100%;
+    appearance: none; -webkit-appearance: none;
+    height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, #274357, #3c6b85);
+    outline: none;
+    cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    appearance: none; -webkit-appearance: none;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #ffe9a8, #c8963a 70%);
+    border: 1px solid #7a5a1e;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.6);
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #ffe9a8, #c8963a 70%);
+    border: 1px solid #7a5a1e;
+  }
+
+  /* Broadside fire buttons */
+  #fire-buttons { display: flex; gap: 10px; margin-top: 4px; }
+  .fire-btn {
+    flex: 1;
+    padding: 10px 6px;
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: #ffe9c2;
+    background: linear-gradient(180deg, #6e2f22, #48180f);
+    border: 1px solid #a85b39;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.06s ease, filter 0.15s ease;
+  }
+  .fire-btn:hover { filter: brightness(1.25); }
+  .fire-btn:active { transform: scale(0.95); }
+  .fire-btn:disabled {
+    filter: grayscale(0.8) brightness(0.6);
+    cursor: default;
+  }
+
+  /* ---------------- Help hint (bottom-right) ---------------- */
+  #help { bottom: 14px; right: 14px; font-size: 11px; color: #a89877; max-width: 240px; line-height: 1.6; }
+  #help b { color: #e0b64d; }
+
+  /* ---------------- Title banner ---------------- */
+  #title {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 20px; letter-spacing: 4px; color: #e0b64d;
+    text-shadow: 0 2px 6px rgba(0,0,0,0.8);
+    z-index: 10; pointer-events: none;
+  }
+
+  /* Floating "+10 Gold" style toast shown on a hit */
+  #hit-toast {
+    position: fixed; top: 22%; left: 50%; transform: translateX(-50%);
+    font-size: 26px; color: #ffd75e; font-weight: bold;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.9);
+    opacity: 0; pointer-events: none; z-index: 20;
+    transition: opacity 0.25s ease, transform 0.9s ease;
+  }
+  #hit-toast.show { opacity: 1; transform: translate(-50%, -22px); }
+</style>
+</head>
+<body>
+
+<canvas id="game-canvas"></canvas>
+
+<div id="title">⚓ PIRATE SIMULATOR ⚓</div>
+<div id="hit-toast">+10 Gold!</div>
+
+<!-- ================= Telemetry panel ================= -->
+<div id="telemetry" class="panel">
+  <h2>Ship's Log</h2>
+  <div class="row"><span class="label">Speed</span>       <span class="value" id="ui-speed">0.0 kn</span></div>
+  <div class="row"><span class="label">Heading</span>     <span class="value" id="ui-heading">000°</span></div>
+  <div class="row"><span class="label">Sails</span>       <span class="value" id="ui-sails">50%</span></div>
+  <div class="row"><span class="label">Gold</span>        <span class="value gold" id="ui-gold">0</span></div>
+  <div id="wind-status">Beam Reach</div>
+</div>
+
+<!-- ================= Compass panel ================= -->
+<div id="compass-panel" class="panel">
+  <h2>Compass</h2>
+  <canvas id="compass-canvas" width="130" height="130"></canvas>
+  <div id="compass-legend"><span class="ship-key">▲ Ship</span> &nbsp; <span class="wind-key">▲ Wind</span></div>
+</div>
+
+<!-- ================= Helm controls panel ================= -->
+<div id="controls" class="panel">
+  <h2>Helm</h2>
+
+  <div class="control-group">
+    <label>Sail Deployment <span class="readout" id="sail-readout">50%</span></label>
+    <input type="range" id="sail-slider" min="0" max="100" value="50" step="1">
+  </div>
+
+  <div class="control-group">
+    <label>Rudder <span class="readout" id="rudder-readout">0°</span></label>
+    <input type="range" id="rudder-slider" min="-45" max="45" value="0" step="1">
+  </div>
+
+  <div id="fire-buttons">
+    <button class="fire-btn" id="fire-port">☠ FIRE PORT</button>
+    <button class="fire-btn" id="fire-starboard">FIRE STARBOARD ☠</button>
+  </div>
+</div>
+
+<!-- ================= Help panel ================= -->
+<div id="help" class="panel">
+  <b>W / S</b> — sails &nbsp; <b>A / D</b> — rudder<br>
+  <b>Q / E</b> — fire port / starboard &nbsp; <b>R</b> — center rudder<br>
+  <b>Drag</b> the sea to orbit the camera.<br>
+  Sink barrels for gold. Beware sailing into the wind — ye'll be caught in irons!
+</div>
+
+<!-- Three.js (latest stable) served from CDN as an ES module -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.166.1/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ======================================================================
+ *  PIRATE SIMULATOR
+ *  ---------------------------------------------------------------------
+ *  A self-contained Three.js sailing game:
+ *    - Infinite shader-driven ocean + procedural sky dome
+ *    - Physically-flavoured sailing model (wind dot product, rudder
+ *      torque, turn-induced speed bleed, exponential water drag)
+ *    - Broadside cannon combat with parabolic ballistics
+ *    - Distance-based collision, particle explosions, score + respawn
+ *    - verifySystemState(): per-frame NaN/Infinity protection, world
+ *      re-centering (floating point anchoring) and projectile cleanup
+ * ====================================================================== */
+
+/* ============================ CONSTANTS ============================ */
+
+const WORLD = {
+  OCEAN_SIZE:      4000,   // side length of the visible ocean plane
+  OCEAN_SEGMENTS:  128,    // plane resolution for the wave vertex shader
+  BOUNDARY:        2000,   // ship distance from origin that triggers re-centering
+  FOG_COLOR:       0xb8d0dd,
+};
+
+const PHYSICS = {
+  MAX_SPEED:        14,     // hard cap on hull speed (world units / s)
+  SAIL_ACCEL:       6.5,    // peak acceleration with full sails + full wind
+  DRAG:             0.30,   // exponential water drag coefficient (1/s)
+  QUAD_DRAG:        0.012,  // small quadratic drag term for a nicer top-end
+  RUDDER_TORQUE:    0.55,   // angular acceleration per unit rudder at full speed
+  ANGULAR_DAMP:     2.2,    // angular velocity damping (1/s)
+  TURN_BLEED:       0.55,   // fraction of speed bled per rad/s of turn rate
+  IRONS_DOT:       -0.55,   // forward·wind below this ⇒ ship is "in irons"
+  GRAVITY:          9.8,    // for cannonball ballistics
+};
+
+const COMBAT = {
+  CANNON_SPEED:     30,    // outward muzzle velocity of cannonballs
+  CANNON_LIFT:      6.5,   // upward component so shots arc nicely
+  FIRE_COOLDOWN:    1.4,   // seconds between broadsides (per side)
+  BALL_RADIUS:      0.38,
+  HIT_RADIUS:       3.4,   // distance-based collision radius vs. targets
+  MAX_BALL_RANGE:   600,   // cleanup distance for stray projectiles
+  TARGET_COUNT:     8,     // barrels afloat at any time
+  GOLD_PER_HIT:     10,
+};
+
+// Global wind: a fixed, normalized direction the wind blows TOWARD.
+// Sailing along this vector = running downwind (fastest). Chosen so the
+// ship spawns on a comfortable broad reach rather than in irons.
+const WIND_DIR = new THREE.Vector3(0.42, 0, 0.91).normalize();
+
+/* ============================ RENDERER ============================ */
+
+const canvas = document.getElementById('game-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(WORLD.FOG_COLOR, 350, 1500);
+
+const camera = new THREE.PerspectiveCamera(
+  60, window.innerWidth / window.innerHeight, 0.1, 5000
+);
+
+// Graceful resize handling — keeps the projection matrix and drawing
+// buffer in sync with the viewport.
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ============================ LIGHTING ============================ */
+
+// The "sun": a warm directional light angled low for long dramatic shadows
+// on the sails, plus a cool hemisphere fill so shadowed faces stay readable.
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.2);
+sun.position.set(-300, 380, 220);
+scene.add(sun);
+
+const hemi = new THREE.HemisphereLight(0xbfd8e8, 0x2a4a5a, 0.9);
+scene.add(hemi);
+
+/* ============================== SKY =============================== */
+
+// A large inward-facing sphere shaded with a vertical gradient plus a
+// procedural sun disc — no textures, no external assets.
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    topColor:     { value: new THREE.Color(0x2e6ea8) },
+    horizonColor: { value: new THREE.Color(WORLD.FOG_COLOR) },
+    sunDir:       { value: sun.position.clone().normalize() },
+  },
+  vertexShader: /* glsl */`
+    varying vec3 vDir;
+    void main() {
+      vDir = normalize(position);
+      // Render the sky "at infinity": strip translation so it follows the camera.
+      vec4 pos = projectionMatrix * mat4(mat3(viewMatrix)) * vec4(position, 1.0);
+      gl_Position = pos.xyww;   // force depth to the far plane
+    }
+  `,
+  fragmentShader: /* glsl */`
+    uniform vec3 topColor;
+    uniform vec3 horizonColor;
+    uniform vec3 sunDir;
+    varying vec3 vDir;
+    void main() {
+      float h = clamp(vDir.y, 0.0, 1.0);
+      vec3 col = mix(horizonColor, topColor, pow(h, 0.55));
+      // Procedural sun disc + halo
+      float sunAmount = max(dot(normalize(vDir), sunDir), 0.0);
+      col += vec3(1.0, 0.9, 0.7) * pow(sunAmount, 350.0) * 1.2;  // disc
+      col += vec3(1.0, 0.8, 0.5) * pow(sunAmount, 12.0) * 0.18;  // halo
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+});
+const sky = new THREE.Mesh(new THREE.SphereGeometry(2500, 24, 16), skyMat);
+sky.frustumCulled = false;
+scene.add(sky);
+
+/* ============================== OCEAN ============================= */
+
+/**
+ * The wave field is a sum of three sine waves. The SAME function exists
+ * twice: once in GLSL (GPU vertex displacement) and once in JS (so the
+ * ship, barrels and cannon splashes can query the water height on CPU).
+ * Keep both copies in sync if you tune the constants!
+ */
+function waveHeight(x, z, t) {
+  return Math.sin(x * 0.045 + t * 0.8)  * 0.60 +
+         Math.sin(z * 0.075 + t * 1.1)  * 0.40 +
+         Math.sin((x + z) * 0.030 + t * 0.6) * 0.35;
+}
+
+/** Approximate wave surface slope via central differences (for ship pitch/roll). */
+function waveNormalInfo(x, z, t) {
+  const e = 1.5;
+  const hL = waveHeight(x - e, z, t), hR = waveHeight(x + e, z, t);
+  const hB = waveHeight(x, z - e, t), hF = waveHeight(x, z + e, t);
+  return { slopeX: (hR - hL) / (2 * e), slopeZ: (hF - hB) / (2 * e) };
+}
+
+const oceanUniforms = {
+  uTime:       { value: 0 },
+  uDeepColor:  { value: new THREE.Color(0x0d3a52) },
+  uCrestColor: { value: new THREE.Color(0x2f7f96) },
+  uFogColor:   { value: new THREE.Color(WORLD.FOG_COLOR) },
+  uSunDir:     { value: sun.position.clone().normalize() },
+};
+
+const oceanGeo = new THREE.PlaneGeometry(
+  WORLD.OCEAN_SIZE, WORLD.OCEAN_SIZE,
+  WORLD.OCEAN_SEGMENTS, WORLD.OCEAN_SEGMENTS
+);
+oceanGeo.rotateX(-Math.PI / 2);   // lay the plane flat: local coords become XZ
+
+const oceanMat = new THREE.ShaderMaterial({
+  uniforms: oceanUniforms,
+  vertexShader: /* glsl */`
+    uniform float uTime;
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+
+    // GLSL twin of the JS waveHeight() — keep in sync.
+    float waveHeight(vec2 p, float t) {
+      return sin(p.x * 0.045 + t * 0.8)  * 0.60 +
+             sin(p.y * 0.075 + t * 1.1)  * 0.40 +
+             sin((p.x + p.y) * 0.030 + t * 0.6) * 0.35;
+    }
+
+    void main() {
+      // Displace in WORLD space so the mesh can be re-tiled under the ship
+      // without the wave pattern swimming.
+      vec3 wp = (modelMatrix * vec4(position, 1.0)).xyz;
+      wp.y += waveHeight(wp.xz, uTime);
+
+      // Cheap analytic-ish normal from finite differences.
+      float e = 1.5;
+      float hL = waveHeight(wp.xz - vec2(e, 0.0), uTime);
+      float hR = waveHeight(wp.xz + vec2(e, 0.0), uTime);
+      float hB = waveHeight(wp.xz - vec2(0.0, e), uTime);
+      float hF = waveHeight(wp.xz + vec2(0.0, e), uTime);
+      vNormal = normalize(vec3(hL - hR, 2.0 * e, hB - hF));
+
+      vWorldPos = wp;
+      gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+    }
+  `,
+  fragmentShader: /* glsl */`
+    uniform vec3 uDeepColor;
+    uniform vec3 uCrestColor;
+    uniform vec3 uFogColor;
+    uniform vec3 uSunDir;
+    varying vec3 vWorldPos;
+    varying vec3 vNormal;
+
+    void main() {
+      vec3 n = normalize(vNormal);
+      vec3 viewDir = normalize(cameraPosition - vWorldPos);
+
+      // Base colour: deeper troughs are darker, crests brighter.
+      float crest = clamp(vWorldPos.y * 0.55 + 0.5, 0.0, 1.0);
+      vec3 col = mix(uDeepColor, uCrestColor, crest);
+
+      // Fresnel rim brightening toward grazing angles (sky reflection feel).
+      float fresnel = pow(1.0 - max(dot(n, viewDir), 0.0), 3.0);
+      col = mix(col, uFogColor, fresnel * 0.55);
+
+      // Sun glitter: tight specular highlight.
+      vec3 halfV = normalize(uSunDir + viewDir);
+      float spec = pow(max(dot(n, halfV), 0.0), 180.0);
+      col += vec3(1.0, 0.95, 0.8) * spec * 0.9;
+
+      // Manual distance fog so the ocean melts into the horizon/sky colour.
+      float dist = length(cameraPosition - vWorldPos);
+      float fogF = smoothstep(350.0, 1500.0, dist);
+      col = mix(col, uFogColor, fogF);
+
+      gl_FragColor = vec4(col, 1.0);
+    }
+  `,
+});
+const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+ocean.frustumCulled = false;
+scene.add(ocean);
+
+/* =========================== PLAYER SHIP ========================== */
+
+/**
+ * The ship is a THREE.Group assembled entirely from primitives:
+ *  - hull (tapered box via scaled vertices) with a raised stern castle
+ *  - bowsprit marking the front, two masts, yards, rigging lines
+ *  - two sails (planes) whose scale.y tracks the deployment slider
+ * Local convention: +Z is forward (bow), +X is starboard.
+ */
+const shipMats = {
+  hull:  new THREE.MeshStandardMaterial({ color: 0x5a3a22, roughness: 0.85 }),
+  deck:  new THREE.MeshStandardMaterial({ color: 0x8a6a44, roughness: 0.9 }),
+  mast:  new THREE.MeshStandardMaterial({ color: 0x4a3018, roughness: 0.9 }),
+  sail:  new THREE.MeshStandardMaterial({
+           color: 0xf0e6d0, roughness: 0.95, side: THREE.DoubleSide }),
+  trim:  new THREE.MeshStandardMaterial({ color: 0xc89b3c, roughness: 0.5, metalness: 0.4 }),
+  cannon:new THREE.MeshStandardMaterial({ color: 0x222226, roughness: 0.4, metalness: 0.7 }),
+};
+
+function buildShip() {
+  const ship = new THREE.Group();
+
+  // --- Hull: a box whose bow vertices are pinched inward/upswept ---
+  const hullGeo = new THREE.BoxGeometry(4.6, 2.6, 15, 1, 1, 4);
+  const pos = hullGeo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i);
+    // Taper the width toward the bow (+Z) and slightly at the stern.
+    const t = THREE.MathUtils.clamp((z + 7.5) / 15, 0, 1);  // 0=stern → 1=bow
+    const taper = t > 0.72 ? 1 - (t - 0.72) * 2.6 : 1;
+    pos.setX(i, pos.getX(i) * Math.max(taper, 0.12));
+    // Sweep the keel up at the bow for a proper prow silhouette.
+    if (pos.getY(i) < 0 && t > 0.75) pos.setY(i, pos.getY(i) * (1 - (t - 0.75) * 2.8));
+  }
+  hullGeo.computeVertexNormals();
+  const hull = new THREE.Mesh(hullGeo, shipMats.hull);
+  hull.position.y = 0.4;
+  ship.add(hull);
+
+  // --- Deck plank ---
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(3.9, 0.25, 13.5), shipMats.deck);
+  deck.position.y = 1.75;
+  ship.add(deck);
+
+  // --- Stern castle (raised aft cabin) makes the BACK obvious ---
+  const stern = new THREE.Mesh(new THREE.BoxGeometry(4.0, 1.6, 3.2), shipMats.hull);
+  stern.position.set(0, 2.5, -5.6);
+  ship.add(stern);
+  const sternRail = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.3, 0.3), shipMats.trim);
+  sternRail.position.set(0, 3.45, -7.1);
+  ship.add(sternRail);
+
+  // --- Bowsprit (angled spar) makes the FRONT obvious ---
+  const bowsprit = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.16, 5.5, 6), shipMats.mast);
+  bowsprit.rotation.x = -Math.PI / 2 + 0.28;
+  bowsprit.position.set(0, 2.4, 8.6);
+  ship.add(bowsprit);
+
+  // --- Masts, yards, sails ---
+  // Each sail plane is built with its TOP edge at the pivot origin so that
+  // scaling Y "unfurls" it downward from the yard, like a real square sail.
+  const sails = [];
+  const mastSpecs = [
+    { z:  2.8, height: 11.5, sailW: 6.4, sailH: 5.2 },  // foremast
+    { z: -2.2, height: 13.0, sailW: 7.2, sailH: 6.0 },  // mainmast
+  ];
+  const mastTops = [];
+
+  for (const spec of mastSpecs) {
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.14, 0.22, spec.height, 8), shipMats.mast);
+    mast.position.set(0, 1.75 + spec.height / 2, spec.z);
+    ship.add(mast);
+    mastTops.push(new THREE.Vector3(0, 1.75 + spec.height, spec.z));
+
+    // Yard: the horizontal spar the sail hangs from.
+    const yardY = 1.75 + spec.height * 0.82;
+    const yard = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.09, 0.09, spec.sailW + 1.0, 6), shipMats.mast);
+    yard.rotation.z = Math.PI / 2;
+    yard.position.set(0, yardY, spec.z);
+    ship.add(yard);
+
+    // Sail pivot group: sits at the yard; the plane hangs below it.
+    const sailPivot = new THREE.Group();
+    sailPivot.position.set(0, yardY, spec.z);
+    const sailGeo = new THREE.PlaneGeometry(spec.sailW, spec.sailH, 8, 6);
+    sailGeo.translate(0, -spec.sailH / 2, 0);  // top edge on the pivot
+    // Pre-bend the sail so it looks wind-filled (billow toward the bow).
+    const sp = sailGeo.attributes.position;
+    for (let i = 0; i < sp.count; i++) {
+      const nx = sp.getX(i) / (spec.sailW / 2);        // -1..1 across
+      const ny = -sp.getY(i) / spec.sailH;             //  0..1 down
+      sp.setZ(i, (1 - nx * nx) * Math.sin(ny * Math.PI) * 0.8);
+    }
+    sailGeo.computeVertexNormals();
+    const sail = new THREE.Mesh(sailGeo, shipMats.sail);
+    sailPivot.add(sail);
+    ship.add(sailPivot);
+    sails.push(sail);
+  }
+
+  // --- Rigging: simple line segments from mast tops to bow/stern ---
+  const rigPts = [];
+  const bowTip = new THREE.Vector3(0, 3.2, 10.6);
+  const sternTip = new THREE.Vector3(0, 3.4, -7.2);
+  for (const top of mastTops) {
+    rigPts.push(top.clone(), bowTip.clone());
+    rigPts.push(top.clone(), sternTip.clone());
+  }
+  rigPts.push(mastTops[0].clone(), mastTops[1].clone());  // stay between masts
+  // Shrouds: mast tops down to the rails on both sides.
+  for (const top of mastTops) {
+    rigPts.push(top.clone(), new THREE.Vector3( 2.2, 1.9, top.z - 1.2));
+    rigPts.push(top.clone(), new THREE.Vector3(-2.2, 1.9, top.z - 1.2));
+  }
+  const rigGeo = new THREE.BufferGeometry().setFromPoints(rigPts);
+  const rigging = new THREE.LineSegments(
+    rigGeo, new THREE.LineBasicMaterial({ color: 0x2a2018 }));
+  ship.add(rigging);
+
+  // --- Broadside cannons: 3 stubby barrels per side, poking outward ---
+  const cannonGeo = new THREE.CylinderGeometry(0.16, 0.20, 1.4, 8);
+  const cannonZ = [3.4, 0, -3.4];  // fore / mid / aft gun positions
+  const muzzles = { port: [], starboard: [] };
+  for (const side of [1, -1]) {          // +1 = starboard (+X), -1 = port
+    for (const z of cannonZ) {
+      const gun = new THREE.Mesh(cannonGeo, shipMats.cannon);
+      gun.rotation.z = side * Math.PI / 2;   // barrel points along ±X
+      gun.position.set(side * 2.15, 1.55, z);
+      ship.add(gun);
+      // Record the muzzle position in ship-local space for spawning shots.
+      (side === 1 ? muzzles.starboard : muzzles.port)
+        .push(new THREE.Vector3(side * 2.9, 1.6, z));
+    }
+  }
+
+  // Golden stern lantern for flair.
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.28, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0xffd75e, emissive: 0xaa7a1a, roughness: 0.3 }));
+  lantern.position.set(0, 4.4, -7.2);
+  ship.add(lantern);
+
+  return { group: ship, sails, muzzles };
+}
+
+const shipParts = buildShip();
+const ship = shipParts.group;
+scene.add(ship);
+
+/* ======================= SHIP PHYSICS STATE ======================= */
+
+const shipState = {
+  heading: 0,        // radians; 0 = local +Z pointing "north" (world +Z)
+  speed: 0,          // scalar forward speed (world units / s)
+  angularVel: 0,     // rad/s yaw rate (built up by rudder torque)
+  sailDeployment: 0.5,  // 0..1 mirror of the sail slider
+  rudder: 0,            // -45..45 degrees mirror of the rudder slider
+  gold: 0,
+  cooldown: { port: 0, starboard: 0 },
+};
+
+// Snapshot of the last known-good frame, used by verifySystemState()
+// to recover from NaN/Infinity corruption without a hard reset.
+const lastValid = {
+  position: new THREE.Vector3(),
+  heading: 0,
+  speed: 0,
+  angularVel: 0,
+};
+
+// Scratch vectors reused every frame to avoid garbage-collector churn.
+const _forward = new THREE.Vector3();
+const _right   = new THREE.Vector3();
+const _vec     = new THREE.Vector3();
+
+/** Ship's forward unit vector derived from its heading. */
+function shipForward(out) {
+  return out.set(Math.sin(shipState.heading), 0, Math.cos(shipState.heading));
+}
+/** Ship's starboard (right) unit vector. */
+function shipRight(out) {
+  return out.set(Math.cos(shipState.heading), 0, -Math.sin(shipState.heading));
+}
+
+/* ============================ TARGETS ============================= */
+
+// Shared geometry/materials for all barrels: cheap to (re)spawn, and we
+// never need to dispose them individually.
+const barrelGeo  = new THREE.CylinderGeometry(1.1, 1.1, 2.8, 12);
+const barrelMat  = new THREE.MeshStandardMaterial({ color: 0x6b4a26, roughness: 0.9 });
+const ringGeo    = new THREE.TorusGeometry(1.12, 0.09, 6, 16);
+const ringMat    = new THREE.MeshStandardMaterial({
+  color: 0xff3b2f, emissive: 0xa01808, roughness: 0.4 });  // glowing red bands
+
+const targets = [];  // [{ group, bobPhase }]
+
+/** Spawn one floating barrel at a random safe distance from the ship. */
+function spawnTarget() {
+  const group = new THREE.Group();
+  const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+  group.add(barrel);
+  for (const y of [0.9, -0.9]) {
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = y;
+    group.add(ring);
+  }
+
+  // Random polar placement 120–380 units out — far enough not to spawn
+  // on top of the player, close enough to chase.
+  const angle = Math.random() * Math.PI * 2;
+  const dist  = 120 + Math.random() * 260;
+  group.position.set(
+    ship.position.x + Math.sin(angle) * dist,
+    0,
+    ship.position.z + Math.cos(angle) * dist
+  );
+  scene.add(group);
+  targets.push({ group, bobPhase: Math.random() * Math.PI * 2 });
+}
+
+for (let i = 0; i < COMBAT.TARGET_COUNT; i++) spawnTarget();
+
+/* ========================== PROJECTILES =========================== */
+
+const ballGeo = new THREE.SphereGeometry(COMBAT.BALL_RADIUS, 10, 10);
+const ballMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.5, metalness: 0.6 });
+
+const cannonballs = [];  // [{ mesh, vel: Vector3 }]
+
+/**
+ * Fire a 3-gun broadside. Each ball inherits the ship's momentum, gets a
+ * strong outward kick plus lift, and a touch of random spread so the
+ * three shots fan out naturally.
+ * @param {'port'|'starboard'} side
+ */
+function fireBroadside(side) {
+  if (shipState.cooldown[side] > 0) return;
+  shipState.cooldown[side] = COMBAT.FIRE_COOLDOWN;
+
+  const outSign = side === 'starboard' ? 1 : -1;
+  shipForward(_forward);
+  shipRight(_right);
+
+  for (const muzzleLocal of shipParts.muzzles[side]) {
+    // Muzzle position: ship-local → world.
+    const pos = muzzleLocal.clone().applyQuaternion(ship.quaternion).add(ship.position);
+
+    // Velocity = ship momentum + outward cannon force + lift + spread.
+    const vel = new THREE.Vector3()
+      .copy(_forward).multiplyScalar(shipState.speed)                        // inherited momentum
+      .addScaledVector(_right, outSign * COMBAT.CANNON_SPEED)               // broadside kick
+      .add(new THREE.Vector3(0, COMBAT.CANNON_LIFT, 0))                     // arc lift
+      .add(new THREE.Vector3(                                               // spread
+        (Math.random() - 0.5) * 2.5,
+        (Math.random() - 0.5) * 1.5,
+        (Math.random() - 0.5) * 2.5));
+
+    const mesh = new THREE.Mesh(ballGeo, ballMat);
+    mesh.position.copy(pos);
+    scene.add(mesh);
+    cannonballs.push({ mesh, vel });
+
+    // Muzzle flash: quick orange particle puff at the gun port.
+    spawnParticles(pos, 0xffa030, 10, 9, 0.35, 1.6, 2);
+  }
+
+  playBoom();
+  flashButton(side);
+}
+
+/* ======================= PARTICLE EXPLOSIONS ====================== */
+
+/**
+ * Lightweight one-shot particle bursts built on THREE.Points.
+ * Each burst owns its geometry (disposed on death) but shares nothing
+ * else, so cleanup is a simple remove + dispose.
+ */
+const particleBursts = [];  // [{ points, velocities, life, maxLife, gravity }]
+
+function spawnParticles(position, color, count, speed, life, size, gravity) {
+  const positions = new Float32Array(count * 3);
+  const velocities = new Float32Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    positions[i * 3]     = position.x;
+    positions[i * 3 + 1] = position.y;
+    positions[i * 3 + 2] = position.z;
+    // Random direction on a sphere, biased slightly upward for drama.
+    const theta = Math.random() * Math.PI * 2;
+    const phi   = Math.acos(2 * Math.random() - 1);
+    const s     = speed * (0.4 + Math.random() * 0.6);
+    velocities[i * 3]     = Math.sin(phi) * Math.cos(theta) * s;
+    velocities[i * 3 + 1] = Math.abs(Math.cos(phi)) * s * 0.9 + speed * 0.15;
+    velocities[i * 3 + 2] = Math.sin(phi) * Math.sin(theta) * s;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color, size, transparent: true, opacity: 1, depthWrite: false,
+    sizeAttenuation: true,
+  });
+  const points = new THREE.Points(geo, mat);
+  scene.add(points);
+  particleBursts.push({ points, velocities, life, maxLife: life, gravity });
+}
+
+/** Advance all live particle bursts; fade, fall, and dispose dead ones. */
+function updateParticles(dt) {
+  for (let i = particleBursts.length - 1; i >= 0; i--) {
+    const b = particleBursts[i];
+    b.life -= dt;
+    if (b.life <= 0) {
+      // Full cleanup: detach from scene and free GPU buffers/material.
+      scene.remove(b.points);
+      b.points.geometry.dispose();
+      b.points.material.dispose();
+      particleBursts.splice(i, 1);
+      continue;
+    }
+    const posAttr = b.points.geometry.attributes.position;
+    for (let p = 0; p < posAttr.count; p++) {
+      b.velocities[p * 3 + 1] -= b.gravity * dt;
+      posAttr.array[p * 3]     += b.velocities[p * 3]     * dt;
+      posAttr.array[p * 3 + 1] += b.velocities[p * 3 + 1] * dt;
+      posAttr.array[p * 3 + 2] += b.velocities[p * 3 + 2] * dt;
+    }
+    posAttr.needsUpdate = true;
+    b.points.material.opacity = b.life / b.maxLife;  // linear fade-out
+  }
+}
+
+/* ========================= PROCEDURAL AUDIO ======================= */
+
+// A tiny synthesized cannon "boom": filtered noise burst with a fast
+// decay envelope. Entirely procedural — no audio files. Wrapped in
+// try/catch so audio failures can never break the game loop.
+let audioCtx = null;
+function playBoom() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const dur = 0.45;
+    const buffer = audioCtx.createBuffer(1, audioCtx.sampleRate * dur, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      const t = i / data.length;
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 2.5);  // decaying noise
+    }
+    const src = audioCtx.createBufferSource();
+    src.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 420;
+    const gain = audioCtx.createGain();
+    gain.gain.value = 0.5;
+    src.connect(filter).connect(gain).connect(audioCtx.destination);
+    src.start();
+  } catch (_) { /* audio is best-effort */ }
+}
+
+/* ========================= UI WIRING ============================== */
+
+const ui = {
+  speed:   document.getElementById('ui-speed'),
+  heading: document.getElementById('ui-heading'),
+  sails:   document.getElementById('ui-sails'),
+  gold:    document.getElementById('ui-gold'),
+  windStatus: document.getElementById('wind-status'),
+  sailSlider:   document.getElementById('sail-slider'),
+  rudderSlider: document.getElementById('rudder-slider'),
+  sailReadout:   document.getElementById('sail-readout'),
+  rudderReadout: document.getElementById('rudder-readout'),
+  firePort:      document.getElementById('fire-port'),
+  fireStarboard: document.getElementById('fire-starboard'),
+  toast: document.getElementById('hit-toast'),
+};
+
+// Sliders write straight into the physics state; readouts echo the value.
+ui.sailSlider.addEventListener('input', () => {
+  shipState.sailDeployment = ui.sailSlider.value / 100;
+  ui.sailReadout.textContent = `${ui.sailSlider.value}%`;
+});
+ui.rudderSlider.addEventListener('input', () => {
+  shipState.rudder = Number(ui.rudderSlider.value);
+  ui.rudderReadout.textContent = `${ui.rudderSlider.value}°`;
+});
+
+ui.firePort.addEventListener('click', () => fireBroadside('port'));
+ui.fireStarboard.addEventListener('click', () => fireBroadside('starboard'));
+
+/** Briefly disable + grey a fire button while its side reloads. */
+function flashButton(side) {
+  const btn = side === 'port' ? ui.firePort : ui.fireStarboard;
+  btn.disabled = true;
+  setTimeout(() => { btn.disabled = false; }, COMBAT.FIRE_COOLDOWN * 1000);
+}
+
+// Keyboard helm: adjusts the same sliders so UI and physics never diverge.
+window.addEventListener('keydown', (e) => {
+  const key = e.key.toLowerCase();
+  const nudgeSlider = (slider, delta) => {
+    slider.value = Number(slider.value) + delta;
+    slider.dispatchEvent(new Event('input'));
+  };
+  if (key === 'w') nudgeSlider(ui.sailSlider, 5);
+  else if (key === 's') nudgeSlider(ui.sailSlider, -5);
+  else if (key === 'a') nudgeSlider(ui.rudderSlider, -5);
+  else if (key === 'd') nudgeSlider(ui.rudderSlider, 5);
+  else if (key === 'r') { ui.rudderSlider.value = 0; ui.rudderSlider.dispatchEvent(new Event('input')); }
+  else if (key === 'q') fireBroadside('port');
+  else if (key === 'e') fireBroadside('starboard');
+});
+
+/** Pop the "+10 Gold!" toast, restarting its animation if already visible. */
+let toastTimer = null;
+function showToast() {
+  ui.toast.classList.remove('show');
+  void ui.toast.offsetWidth;         // reflow to restart the CSS transition
+  ui.toast.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => ui.toast.classList.remove('show'), 900);
+}
+
+/* ============================ COMPASS ============================= */
+
+const compassCtx = document.getElementById('compass-canvas').getContext('2d');
+
+/**
+ * Draws a fixed-north compass rose each frame with two arrows:
+ *  gold = ship heading, cyan = wind direction (the way the wind blows).
+ */
+function drawCompass() {
+  const ctx = compassCtx;
+  const W = 130, C = W / 2, R = 52;
+  ctx.clearRect(0, 0, W, W);
+
+  // Rose ring + tick marks
+  ctx.strokeStyle = 'rgba(224,182,77,0.6)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(C, C, R, 0, Math.PI * 2); ctx.stroke();
+  ctx.lineWidth = 1;
+  for (let d = 0; d < 360; d += 30) {
+    const a = THREE.MathUtils.degToRad(d);
+    const inner = d % 90 === 0 ? R - 9 : R - 5;
+    ctx.beginPath();
+    ctx.moveTo(C + Math.sin(a) * inner, C - Math.cos(a) * inner);
+    ctx.lineTo(C + Math.sin(a) * R,     C - Math.cos(a) * R);
+    ctx.stroke();
+  }
+  // Cardinal labels
+  ctx.fillStyle = '#e0b64d';
+  ctx.font = 'bold 11px Georgia';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('N', C, C - R + 16);
+  ctx.fillStyle = 'rgba(232,217,176,0.7)';
+  ctx.fillText('S', C, C + R - 16);
+  ctx.fillText('E', C + R - 16, C);
+  ctx.fillText('W', C - R + 16, C);
+
+  // Arrow helper: draws a triangle pointing along `angle` (0 = north/up).
+  const arrow = (angle, color, len) => {
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.rotate(angle);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, -len);
+    ctx.lineTo(6, len * 0.45);
+    ctx.lineTo(0, len * 0.2);
+    ctx.lineTo(-6, len * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  };
+
+  // World +Z is "north". screenAngle converts a world XZ direction so the
+  // rose reads like a chart (rotation measured clockwise from up).
+  const windAngle = Math.atan2(WIND_DIR.x, WIND_DIR.z);
+  arrow(windAngle, 'rgba(127,200,216,0.95)', 30);          // wind vector
+  arrow(shipState.heading, 'rgba(255,215,94,0.95)', 42);   // ship heading
+
+  // Hub rivet
+  ctx.fillStyle = '#0a121c';
+  ctx.beginPath(); ctx.arc(C, C, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#e0b64d'; ctx.stroke();
+}
+
+/* ========================= CHASE CAMERA =========================== */
+
+// The camera trails the stern with smoothing. Dragging the pointer adds a
+// yaw/pitch offset around the ship so players can admire their vessel.
+const cameraCtl = {
+  yawOffset: 0,
+  pitch: 0.34,          // radians above the horizon
+  distance: 30,
+  dragging: false,
+  lastX: 0, lastY: 0,
+};
+
+canvas.addEventListener('pointerdown', (e) => {
+  cameraCtl.dragging = true;
+  cameraCtl.lastX = e.clientX;
+  cameraCtl.lastY = e.clientY;
+});
+window.addEventListener('pointermove', (e) => {
+  if (!cameraCtl.dragging) return;
+  cameraCtl.yawOffset -= (e.clientX - cameraCtl.lastX) * 0.005;
+  cameraCtl.pitch = THREE.MathUtils.clamp(
+    cameraCtl.pitch + (e.clientY - cameraCtl.lastY) * 0.004, 0.08, 1.1);
+  cameraCtl.lastX = e.clientX;
+  cameraCtl.lastY = e.clientY;
+});
+window.addEventListener('pointerup', () => { cameraCtl.dragging = false; });
+canvas.addEventListener('wheel', (e) => {
+  cameraCtl.distance = THREE.MathUtils.clamp(
+    cameraCtl.distance + e.deltaY * 0.03, 14, 70);
+}, { passive: true });
+
+function updateCamera(dt) {
+  const yaw = shipState.heading + Math.PI + cameraCtl.yawOffset;  // behind the ship
+  const horiz = Math.cos(cameraCtl.pitch) * cameraCtl.distance;
+  const targetPos = _vec.set(
+    ship.position.x + Math.sin(yaw) * horiz,
+    ship.position.y + Math.sin(cameraCtl.pitch) * cameraCtl.distance + 2,
+    ship.position.z + Math.cos(yaw) * horiz
+  );
+  // Exponential smoothing: frame-rate independent lerp toward the target.
+  const k = 1 - Math.exp(-4.5 * dt);
+  camera.position.lerp(targetPos, k);
+  camera.lookAt(ship.position.x, ship.position.y + 3.5, ship.position.z);
+}
+
+// Start the camera in a sensible spot before the first frame renders.
+camera.position.set(0, 14, -30);
+camera.lookAt(0, 3, 0);
+
+/* ====================== SAILING PHYSICS STEP ====================== */
+
+/**
+ * One physics tick for the ship. All rates are scaled by dt so behaviour
+ * is identical across frame rates.
+ */
+function updateShipPhysics(dt, elapsed) {
+  shipForward(_forward);
+
+  // ---- Wind & sail thrust -----------------------------------------
+  // dot = +1 sailing dead downwind, -1 driving straight into the wind.
+  const windDot = _forward.dot(WIND_DIR);
+  let windEfficiency = (windDot + 1) / 2;          // remap to 0..1
+  if (windDot < PHYSICS.IRONS_DOT) windEfficiency *= 0.06;  // "in irons": stalled
+  const thrust = PHYSICS.SAIL_ACCEL * shipState.sailDeployment * windEfficiency;
+  shipState.speed += thrust * dt;
+
+  // ---- Water drag --------------------------------------------------
+  // Exponential (linear-in-speed) drag plus a small quadratic term:
+  // with sails at 0% the ship coasts smoothly to a halt.
+  shipState.speed -= shipState.speed * PHYSICS.DRAG * dt;
+  shipState.speed -= shipState.speed * Math.abs(shipState.speed) * PHYSICS.QUAD_DRAG * dt;
+  shipState.speed = THREE.MathUtils.clamp(shipState.speed, 0, PHYSICS.MAX_SPEED);
+
+  // ---- Rudder torque & momentum -----------------------------------
+  // The rudder only bites when water flows past it, so torque scales with
+  // speed. Angular velocity integrates over time (momentum) and is damped.
+  const rudderRad = THREE.MathUtils.degToRad(shipState.rudder);
+  const speedFactor = 0.15 + 0.85 * (shipState.speed / PHYSICS.MAX_SPEED);
+  shipState.angularVel += rudderRad * PHYSICS.RUDDER_TORQUE * speedFactor * dt * 3.0;
+  shipState.angularVel -= shipState.angularVel * PHYSICS.ANGULAR_DAMP * dt;
+  shipState.heading += shipState.angularVel * dt;
+  // Keep heading in (-π, π] so precision never degrades on long voyages.
+  shipState.heading = Math.atan2(Math.sin(shipState.heading), Math.cos(shipState.heading));
+
+  // ---- Turn bleed --------------------------------------------------
+  // Hard turns scrub speed (leeway + rudder drag): sharper turn = more bleed.
+  shipState.speed *= Math.max(0, 1 - Math.abs(shipState.angularVel) * PHYSICS.TURN_BLEED * dt);
+
+  // ---- Integrate position -----------------------------------------
+  shipForward(_forward);   // refresh after the heading change
+  ship.position.addScaledVector(_forward, shipState.speed * dt);
+
+  // ---- Buoyancy: ride the wave surface with pitch & roll -----------
+  const h = waveHeight(ship.position.x, ship.position.z, elapsed);
+  ship.position.y = h + 0.4;
+  const { slopeX, slopeZ } = waveNormalInfo(ship.position.x, ship.position.z, elapsed);
+  ship.rotation.set(0, shipState.heading, 0);      // base orientation
+  // Convert world slopes into local pitch/roll (softened for stability).
+  const cosH = Math.cos(shipState.heading), sinH = Math.sin(shipState.heading);
+  const pitchSlope = slopeZ * cosH + slopeX * sinH;   // slope along the keel
+  const rollSlope  = slopeX * cosH - slopeZ * sinH;   // slope across the beam
+  ship.rotateX(-pitchSlope * 0.6);
+  ship.rotateZ(rollSlope * 0.8);
+
+  // ---- Sail visuals ------------------------------------------------
+  // scale.y unfurls the canvas; a subtle breathing pulse sells the wind.
+  const deploy = Math.max(shipState.sailDeployment, 0.04);
+  const billow = 0.9 + windEfficiency * 0.25 + Math.sin(elapsed * 2.1) * 0.03;
+  for (const sail of shipParts.sails) {
+    sail.scale.set(1, deploy, billow);
+  }
+
+  // ---- Reload timers ----------------------------------------------
+  shipState.cooldown.port      = Math.max(0, shipState.cooldown.port - dt);
+  shipState.cooldown.starboard = Math.max(0, shipState.cooldown.starboard - dt);
+
+  return { windDot, windEfficiency };
+}
+
+/* ==================== PROJECTILES & COMBAT STEP =================== */
+
+function updateCombat(dt, elapsed) {
+  // Integrate every cannonball under gravity (true parabolic flight).
+  for (const ball of cannonballs) {
+    ball.vel.y -= PHYSICS.GRAVITY * dt;
+    ball.mesh.position.addScaledVector(ball.vel, dt);
+  }
+
+  // Distance-based collision: ball vs. every barrel.
+  for (let bi = cannonballs.length - 1; bi >= 0; bi--) {
+    const ball = cannonballs[bi];
+    for (let ti = targets.length - 1; ti >= 0; ti--) {
+      const target = targets[ti];
+      if (ball.mesh.position.distanceToSquared(target.group.position) <
+          COMBAT.HIT_RADIUS * COMBAT.HIT_RADIUS) {
+        // --- HIT! ---------------------------------------------------
+        // 1) Explosion: fiery burst + splinters at the barrel.
+        spawnParticles(target.group.position, 0xff7722, 42, 14, 0.9, 2.4, 12);
+        spawnParticles(target.group.position, 0x6b4a26, 20, 10, 1.1, 1.6, 14);
+        // 2) Remove the barrel (geometry/material are shared — no dispose).
+        scene.remove(target.group);
+        targets.splice(ti, 1);
+        // 3) Remove the cannonball.
+        scene.remove(ball.mesh);
+        cannonballs.splice(bi, 1);
+        // 4) Score + toast + 5) respawn a fresh barrel elsewhere.
+        shipState.gold += COMBAT.GOLD_PER_HIT;
+        showToast();
+        spawnTarget();
+        break;  // this ball is spent; move to the next one
+      }
+    }
+  }
+
+  // Bob the barrels on the wave surface with a lazy roll.
+  for (const t of targets) {
+    const p = t.group.position;
+    p.y = waveHeight(p.x, p.z, elapsed) + 0.3;
+    t.group.rotation.x = Math.sin(elapsed * 0.9 + t.bobPhase) * 0.12;
+    t.group.rotation.z = Math.cos(elapsed * 0.7 + t.bobPhase) * 0.12;
+  }
+}
+
+/* ============ MANDATORY SELF-VERIFICATION & CORRECTION ============ */
+
+/**
+ * verifySystemState() runs EVERY frame inside the animation loop and
+ * self-heals the simulation:
+ *
+ *  1. NaN/Infinity protection — validates the ship's position, scalar
+ *     velocity, heading, angular velocity and world matrix. Any corrupt
+ *     value is rolled back to the last known-good frame (or a hard
+ *     default if the snapshot itself is bad).
+ *  2. Boundary anchoring — if the ship strays past WORLD.BOUNDARY units
+ *     from the origin, the ENTIRE world (ship, camera, targets,
+ *     projectiles, particles) is translated back toward the origin in
+ *     one atomic shift, preventing floating-point precision loss on
+ *     endless voyages. Gameplay is unaffected because everything moves
+ *     together.
+ *  3. Projectile cleanup — sweeps the cannonball array and removes any
+ *     ball below the waterline (with a splash) or beyond max range, so
+ *     stale meshes never accumulate.
+ */
+function verifySystemState(elapsed) {
+  // ---------- 1) NaN / Infinity protection -------------------------
+  const p = ship.position;
+  const scalarsOk = Number.isFinite(shipState.speed) &&
+                    Number.isFinite(shipState.heading) &&
+                    Number.isFinite(shipState.angularVel);
+  const positionOk = Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.z);
+  // Spot-check the composed world matrix too (catches corrupt quaternions).
+  let matrixOk = true;
+  const m = ship.matrixWorld.elements;
+  for (let i = 0; i < 16; i++) {
+    if (!Number.isFinite(m[i])) { matrixOk = false; break; }
+  }
+
+  if (!scalarsOk || !positionOk || !matrixOk) {
+    // Roll back to the last frame that passed validation.
+    if (Number.isFinite(lastValid.position.x)) {
+      ship.position.copy(lastValid.position);
+      shipState.heading    = lastValid.heading;
+      shipState.speed      = lastValid.speed;
+      shipState.angularVel = lastValid.angularVel;
+    } else {
+      // The snapshot itself is corrupt — fall back to hard defaults.
+      ship.position.set(0, 0, 0);
+      shipState.heading = 0;
+      shipState.speed = 0;
+      shipState.angularVel = 0;
+    }
+    ship.rotation.set(0, shipState.heading, 0);
+    ship.updateMatrixWorld(true);
+    console.warn('[verifySystemState] Corrupt state detected — rolled back to last valid frame.');
+  } else {
+    // State is healthy: refresh the recovery snapshot.
+    lastValid.position.copy(p);
+    lastValid.heading    = shipState.heading;
+    lastValid.speed      = shipState.speed;
+    lastValid.angularVel = shipState.angularVel;
+  }
+
+  // Also guard individual cannonballs — a corrupt one is simply culled.
+  for (let i = cannonballs.length - 1; i >= 0; i--) {
+    const bp = cannonballs[i].mesh.position;
+    const bv = cannonballs[i].vel;
+    if (!Number.isFinite(bp.x) || !Number.isFinite(bp.y) || !Number.isFinite(bp.z) ||
+        !Number.isFinite(bv.x) || !Number.isFinite(bv.y) || !Number.isFinite(bv.z)) {
+      scene.remove(cannonballs[i].mesh);
+      cannonballs.splice(i, 1);
+    }
+  }
+
+  // ---------- 2) Boundary anchoring (world re-centering) -----------
+  const distFromOrigin = Math.hypot(p.x, p.z);
+  if (distFromOrigin > WORLD.BOUNDARY) {
+    const shiftX = p.x, shiftZ = p.z;
+    // Shift every world-space entity by the same offset in one frame:
+    // relative positions are preserved, so the move is invisible.
+    ship.position.x -= shiftX;      ship.position.z -= shiftZ;
+    camera.position.x -= shiftX;    camera.position.z -= shiftZ;
+    lastValid.position.x -= shiftX; lastValid.position.z -= shiftZ;
+    for (const t of targets) {
+      t.group.position.x -= shiftX; t.group.position.z -= shiftZ;
+    }
+    for (const b of cannonballs) {
+      b.mesh.position.x -= shiftX;  b.mesh.position.z -= shiftZ;
+    }
+    for (const burst of particleBursts) {
+      const arr = burst.points.geometry.attributes.position.array;
+      for (let i = 0; i < arr.length; i += 3) {
+        arr[i] -= shiftX; arr[i + 2] -= shiftZ;
+      }
+      burst.points.geometry.attributes.position.needsUpdate = true;
+    }
+  }
+
+  // ---------- 3) Projectile cleanup sweep --------------------------
+  for (let i = cannonballs.length - 1; i >= 0; i--) {
+    const ball = cannonballs[i];
+    const bp = ball.mesh.position;
+    const waterY = waveHeight(bp.x, bp.z, elapsed);
+    const tooFar = bp.distanceToSquared(ship.position) >
+                   COMBAT.MAX_BALL_RANGE * COMBAT.MAX_BALL_RANGE;
+    if (bp.y < Math.min(waterY, 0) || bp.y < 0 || tooFar) {
+      if (!tooFar) {
+        // Splash where the ball met the sea.
+        spawnParticles(
+          new THREE.Vector3(bp.x, Math.max(waterY, 0) + 0.2, bp.z),
+          0xcfe8f0, 14, 6, 0.6, 1.4, 10);
+      }
+      scene.remove(ball.mesh);   // shared geometry/material — no dispose
+      cannonballs.splice(i, 1);
+    }
+  }
+}
+
+/* ========================== HUD REFRESH =========================== */
+
+/** Classify the point of sail for the status line. */
+function pointOfSail(windDot) {
+  if (windDot < PHYSICS.IRONS_DOT) return { text: '⚠ In Irons — turn away from the wind!', irons: true };
+  if (windDot < 0.0)  return { text: 'Close Hauled', irons: false };
+  if (windDot < 0.5)  return { text: 'Beam Reach',   irons: false };
+  if (windDot < 0.85) return { text: 'Broad Reach',  irons: false };
+  return { text: 'Running — full wind astern!', irons: false };
+}
+
+function updateHUD(windDot) {
+  // 1 world-unit/s ≈ 1 knot for display purposes.
+  ui.speed.textContent = `${shipState.speed.toFixed(1)} kn`;
+  const deg = (THREE.MathUtils.radToDeg(shipState.heading) % 360 + 360) % 360;
+  ui.heading.textContent = `${String(Math.round(deg)).padStart(3, '0')}°`;
+  ui.sails.textContent = `${Math.round(shipState.sailDeployment * 100)}%`;
+  ui.gold.textContent = String(shipState.gold);
+
+  const pos = pointOfSail(windDot);
+  ui.windStatus.textContent = pos.text;
+  ui.windStatus.classList.toggle('irons', pos.irons);
+}
+
+/* ======================== MAIN GAME LOOP ========================== */
+
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Clamp dt so a background-tab pause can't produce one giant,
+  // physics-breaking timestep on resume.
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const elapsed = clock.elapsedTime;
+
+  // ---- Simulation ----
+  const { windDot } = updateShipPhysics(dt, elapsed);
+  updateCombat(dt, elapsed);
+  updateParticles(dt);
+
+  // ---- Mandatory self-verification & correction (every frame) ----
+  verifySystemState(elapsed);
+
+  // ---- Environment follows the ship for the "infinite" illusion ----
+  oceanUniforms.uTime.value = elapsed;
+  ocean.position.set(ship.position.x, 0, ship.position.z);
+  sky.position.copy(camera.position);
+
+  // ---- Presentation ----
+  updateCamera(dt);
+  drawCompass();
+  updateHUD(windDot);
+
+  renderer.render(scene, camera);
+}
+
+animate();
+</script>
+</body>
+</html>
