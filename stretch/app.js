@@ -6,19 +6,20 @@ const STORAGE_KEY = 'stretch-rand-v2';
 const PROXY_PATH = '/.netlify/functions/claude-proxy';
 const MODEL = 'claude-opus-4-8'; // server admin config may override
 
-const STORES = ['Shoprite', 'Checkers', 'Pick n Pay', 'Boxer', 'Spar', 'Makro'];
 const STAPLES = ['Maize meal', 'Rice', 'Brown bread', 'Eggs', 'Sunflower oil', 'Sugar', 'Dry beans', 'Tinned fish', 'Cabbage', 'Onions', 'Potatoes', 'Milk'];
 const CAT_ORDER = ['starch', 'protein', 'veg', 'dairy', 'other'];
 const CAT_LABEL = { starch: 'Starch', protein: 'Protein', veg: 'Veg', dairy: 'Dairy', other: 'Other' };
+const MEAL_LABEL = { b: 'breakfast', l: 'lunch', dn: 'dinner', kid: "children's extra" };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 let state = {
   settings: { budget: '', days: '7', adults: '2', kids: '0' },
   pantry: [],   // {id, name, qty}
-  prices: [],   // {id, item, price, store, date, source}
+  prices: [],   // {id, item, price, store, date} — learned from price corrections, no UI
   deals: [],    // {id, item, price, store}
   plan: null,   // {list:[{id,i,q,p,estimated,cat,store,checked}], pantryUsed, warnings, days, budget, madeAt}
+  tweak: '',
   appToken: '',
   serverBase: '',
   apiKey: '',
@@ -26,9 +27,8 @@ let state = {
 };
 
 // transient (not saved)
-let receiptDraft = null; // {store, date, items:[{id,name,qty,price,include}]}
-let dealsDraft = null;   // [{id,name,qty,price,store,include}]
-let activeTab = 'home';
+let dealsDraft = null; // [{id,name,qty,price,store,include}]
+let activeTab = 'plan';
 
 /* ================= persistence ================= */
 
@@ -75,11 +75,6 @@ function showErr(id, msg) {
   if (!el) return;
   if (msg) { el.textContent = msg; el.classList.remove('hidden'); }
   else { el.textContent = ''; el.classList.add('hidden'); }
-}
-
-function setBusy(btn, busy, busyText, idleText) {
-  btn.disabled = busy;
-  btn.textContent = busy ? busyText : idleText;
 }
 
 function parseJSONLoose(text) {
@@ -130,14 +125,14 @@ function downscaleImage(file, maxEdge = 1568) {
   });
 }
 
-/* ================= AI calls (via Netlify proxy) ================= */
+/* ================= AI calls ================= */
 
 function proxyUrl() {
   let base = (state.serverBase || '').trim().replace(/\/+$/, '');
   if (base && !/^https?:\/\//i.test(base)) base = 'https://' + base;
   if (base) return base + PROXY_PATH;
   if (!/^https?:$/.test(location.protocol)) {
-    throw new Error('AI needs a connection. On the Home tab, open Connection settings and paste your Anthropic API key (works anywhere) — or enter your site address (e.g. https://your-site.netlify.app).');
+    throw new Error('AI needs a connection. On the Plan tab, open Connection settings and paste your Anthropic API key (works anywhere) — or enter your site address (e.g. https://your-site.netlify.app).');
   }
   return PROXY_PATH;
 }
@@ -174,7 +169,7 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
       if (state.apiKey) throw new Error("Couldn't reach the AI service. Check your internet connection and try again.");
       throw new Error(hosted && !state.serverBase
         ? "Couldn't reach the AI server. Check your internet connection and try again."
-        : "Couldn't reach the AI server. Check your internet, the Server address under Connection settings, and that your App token is filled in (a copy of the app running outside the site needs the token to connect).");
+        : "Couldn't reach the AI server. Check your internet, the Server address under Connection settings, and that your App token is filled in.");
     }
     throw e;
   }
@@ -185,9 +180,9 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
   if (!res.ok) {
     const serverMsg = data && data.error && data.error.message;
     if (res.status === 401) throw new Error(state.apiKey
-      ? 'That API key was rejected — check it under Connection settings on the Home tab.'
+      ? 'That API key was rejected — check it under Connection settings on the Plan tab.'
       : (serverMsg === 'Unauthorized'
-        ? 'This server needs an app token — add it under Connection settings on the Home tab.'
+        ? 'This server needs an app token — add it under Connection settings on the Plan tab.'
         : 'Not authorised. Check the app token under Connection settings.'));
     if (res.status === 402) throw new Error('The AI service on this server requires a subscription.');
     if (res.status === 429) throw new Error('Too many requests — wait a minute and try again.');
@@ -220,18 +215,28 @@ function basketTotal() {
 
 /* ================= plan generation ================= */
 
+function setBuildBusy(busy, text) {
+  document.querySelectorAll('[data-action="build"]').forEach((b) => {
+    b.disabled = busy;
+    if (busy) b.textContent = text;
+  });
+  if (!busy) {
+    const main = $('#btn-build');
+    if (main) main.textContent = state.plan ? 'Rebuild my plan' : 'Build my plan';
+  }
+}
+
 async function generatePlan() {
   const h = household();
-  const btn = $('#btn-build');
   showErr('#err-build', '');
   if (!h.complete) {
     showErr('#err-build', 'Fill in your budget, days and household size first.');
-    switchTab('home');
+    switchTab('plan');
     return;
   }
-  const tweak = $('#in-tweak').value.trim();
+  const tweak = (state.tweak || '').trim();
 
-  // latest price per item name
+  // latest learned price per item name
   const latest = {};
   [...state.prices].reverse().forEach((p) => { latest[p.item.toLowerCase()] = p; });
   const priceList = Object.values(latest).map((p) => `${p.item}: R${p.price} (${p.store})`).join('; ') || 'none known';
@@ -240,7 +245,7 @@ async function generatePlan() {
   const tweakLine = tweak ? ` Special request from the household (must be respected): ${tweak}.` : '';
 
   try {
-    setBusy(btn, true, 'Building your shopping list…', '');
+    setBuildBusy(true, 'Building your shopping list…');
 
     const listSystem = 'You are an expert budget grocery planner for South African households, working with realistic current prices at Shoprite, Checkers, Pick n Pay, Boxer and Spar. Rules: '
       + '1) The total cost of the list must stay under the budget with roughly a 5% safety margin. '
@@ -266,7 +271,7 @@ async function generatePlan() {
     })).filter((it) => it.i);
     if (!list.length) throw new Error('empty list');
 
-    setBusy(btn, true, 'Planning your meals…', '');
+    setBuildBusy(true, 'Planning your meals…');
 
     const shopSummary = list.map((it) => `${it.i} ${it.q}`).join('; ');
     const daysSystem = `You are the same South African budget meal planner. Using ONLY the shopping list and pantry given, build a ${h.days}-day meal calendar for ${h.adults} adult(s) and ${h.kids} child(ren). Rotate bulk items across consecutive days so nothing is wasted; mention rotation in "note" only when it matters. Each meal max 6 words. `
@@ -284,143 +289,70 @@ async function generatePlan() {
       budget: h.budget,
       madeAt: new Date().toISOString().slice(0, 10),
     };
+    state.tweak = '';
     save();
     render();
-    switchTab('shop');
+    switchTab('plan');
   } catch (e) {
     showErr('#err-build', e && e.message && !/unparseable|empty list/.test(e.message)
       ? e.message
       : "Couldn't build the plan — the answer got cut off. Try again, or trim the pantry list a little.");
   } finally {
-    setBusy(btn, false, '', state.plan ? 'Update my plan' : 'Build my plan');
+    setBuildBusy(false);
+    render();
   }
 }
 
-/* ================= receipt scan ================= */
+/* ================= deals upload (PDF or photo) ================= */
 
-async function handleReceiptFile(file) {
+async function handleDealsFile(file) {
   if (!file) return;
-  const btn = $('#btn-receipt');
-  showErr('#err-receipt', '');
-  receiptDraft = null;
-  renderReceiptDraft();
-  try {
-    setBusy(btn, true, 'Reading receipt…', '');
-    const { data, mediaType } = await downscaleImage(file);
-    const text = await callClaude({
-      system: 'You read South African grocery till slips. Extract every purchased line item with the amount paid in rand. Skip totals, VAT lines, card details and loyalty points. Output ONLY compact JSON, no markdown, exact schema: {"store":"","date":"YYYY-MM-DD","items":[{"name":"","qty":"","price":0}]}. Use empty strings when unclear.',
-      userContent: [
-        { type: 'image', source: { type: 'base64', media_type: mediaType, data } },
-        { type: 'text', text: 'Extract the items from this receipt photo.' },
-      ],
-      maxTokens: 2500,
-    });
-    const parsed = parseJSONLoose(text);
-    receiptDraft = {
-      store: String(parsed.store || ''),
-      date: String(parsed.date || '') || new Date().toISOString().slice(0, 10),
-      items: (parsed.items || []).map((it) => ({
-        id: uid(),
-        name: String(it.name || '').slice(0, 80),
-        qty: String(it.qty || '').slice(0, 40),
-        price: Number(it.price) || 0,
-        include: true,
-      })).filter((it) => it.name),
-    };
-    if (!receiptDraft.items.length) {
-      receiptDraft = null;
-      showErr('#err-receipt', "Couldn't find any items on that slip. Try a flatter, better-lit photo.");
-    }
-  } catch (e) {
-    showErr('#err-receipt', e.message || "Couldn't read that receipt. Try a clearer photo.");
-  } finally {
-    setBusy(btn, false, '', '📷 Scan receipt');
-    renderReceiptDraft();
-  }
-}
-
-function confirmReceipt() {
-  if (!receiptDraft) return;
-  const included = receiptDraft.items.filter((i) => i.include && i.name.trim());
-  const today = receiptDraft.date;
-  included.forEach((i) => {
-    state.prices.unshift({ id: uid(), item: i.name, price: i.price, store: receiptDraft.store || 'Receipt', date: today, source: 'receipt' });
-    state.pantry.unshift({ id: uid(), name: i.name, qty: i.qty || '1' });
-  });
-  receiptDraft = null;
-  save();
-  render();
-}
-
-/* ================= deals scan ================= */
-
-const DEALS_SCHEMA = 'Output ONLY compact JSON, no markdown, exact schema: {"items":[{"name":"","qty":"","price":0,"store":""}]}. Use empty strings when unclear.';
-
-async function handlePdfFile(file) {
-  if (!file) return;
-  const btn = $('#btn-pdf');
+  const btn = $('#btn-deals');
   showErr('#err-deals', '');
-  if (file.size > 15 * 1024 * 1024) {
+  dealsDraft = null;
+  renderDealsDraft();
+  const isPdf = (file.type || '').includes('pdf') || /\.pdf$/i.test(file.name || '');
+  if (isPdf && file.size > 15 * 1024 * 1024) {
     showErr('#err-deals', 'That PDF is too big (over 15MB). Try a shorter excerpt.');
     return;
   }
-  dealsDraft = null;
-  renderDealsDraft();
   try {
-    setBusy(btn, true, 'Reading catalogue…', '');
-    const base64 = await fileToBase64(file);
+    btn.disabled = true;
+    btn.textContent = 'Reading deals…';
+    let contentBlock;
+    if (isPdf) {
+      contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await fileToBase64(file) } };
+    } else {
+      const { data, mediaType } = await downscaleImage(file);
+      contentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
+    }
     const text = await callClaude({
-      system: 'You read South African grocery catalogue and specials PDFs. Extract only grocery/pantry items with clear prices — staples, proteins, vegetables, dairy, tinned goods, bread, cooking basics. Skip non-food, homeware, electronics and vague entries. Note pack size in qty when visible. Keep at most the 25 items most useful for a tight food budget. ' + DEALS_SCHEMA,
+      system: 'You read South African grocery specials: store catalogue PDFs, photos of leaflets, shelf labels or price boards. Extract only grocery/pantry items with clearly visible prices — staples, proteins, vegetables, dairy, tinned goods, bread, cooking basics. Skip non-food and vague entries. Note pack size in qty when visible. Keep at most the 25 items most useful for a tight food budget. Output ONLY compact JSON, no markdown, exact schema: {"items":[{"name":"","qty":"","price":0,"store":""}]}. Use empty strings when unclear.',
       userContent: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-        { type: 'text', text: 'Extract the grocery deals from this catalogue.' },
+        contentBlock,
+        { type: 'text', text: 'Extract the grocery deals with prices.' },
       ],
       maxTokens: 3000,
     });
-    setDealsDraftFrom(parseJSONLoose(text));
+    const parsed = parseJSONLoose(text);
+    dealsDraft = (parsed.items || []).map((it) => ({
+      id: uid(),
+      name: String(it.name || '').slice(0, 80),
+      qty: String(it.qty || '').slice(0, 40),
+      price: Number(it.price) || 0,
+      store: String(it.store || '').slice(0, 40),
+      include: true,
+    })).filter((it) => it.name);
+    if (!dealsDraft.length) {
+      dealsDraft = null;
+      showErr('#err-deals', 'No deals with prices found in there. Try a clearer photo or a different page.');
+    }
   } catch (e) {
-    showErr('#err-deals', e.message || "Couldn't read that PDF — it may be image-only or protected. Try pasting the text instead.");
+    showErr('#err-deals', e.message || "Couldn't read that file. Try a clearer photo or a different PDF.");
   } finally {
-    setBusy(btn, false, '', '📄 Catalogue PDF');
+    btn.disabled = false;
+    btn.textContent = '⬆️ Upload deals';
     renderDealsDraft();
-  }
-}
-
-async function parseDealsText() {
-  const textIn = $('#in-dealtext').value.trim();
-  if (!textIn) return;
-  const btn = $('#btn-parse-deals');
-  showErr('#err-deals', '');
-  dealsDraft = null;
-  renderDealsDraft();
-  try {
-    setBusy(btn, true, 'Reading…', '');
-    const text = await callClaude({
-      system: 'Extract South African grocery items with prices from the pasted text — it may be a specials list, a table or casual notes with noise mixed in. Only include real grocery/pantry items. ' + DEALS_SCHEMA,
-      userContent: textIn.slice(0, 20000),
-      maxTokens: 3000,
-    });
-    setDealsDraftFrom(parseJSONLoose(text));
-  } catch (e) {
-    showErr('#err-deals', e.message || "Couldn't read that — try simplifying the text.");
-  } finally {
-    setBusy(btn, false, '', 'Read pasted deals');
-    renderDealsDraft();
-  }
-}
-
-function setDealsDraftFrom(parsed) {
-  dealsDraft = (parsed.items || []).map((it) => ({
-    id: uid(),
-    name: String(it.name || '').slice(0, 80),
-    qty: String(it.qty || '').slice(0, 40),
-    price: Number(it.price) || 0,
-    store: String(it.store || '').slice(0, 40),
-    include: true,
-  })).filter((it) => it.name);
-  if (!dealsDraft.length) {
-    dealsDraft = null;
-    showErr('#err-deals', 'Nothing recognisable in there — deal prices need to be visible.');
   }
 }
 
@@ -435,7 +367,6 @@ function confirmDeals() {
     });
   });
   dealsDraft = null;
-  $('#in-dealtext').value = '';
   save();
   render();
 }
@@ -454,20 +385,14 @@ function switchTab(tab) {
 
 function render() {
   renderGauge();
-  renderHomeSummary();
   renderChips();
   renderList('#list-pantry', state.pantry, (p) =>
     `<span class="grow">${esc(p.name)} <span class="dim">${esc(p.qty || '')}</span></span>`,
-    'Empty — add what you already have at home.');
-  renderList('#list-deals', state.deals, (d) =>
-    `<span class="grow">${esc(d.item)} <span class="dim">· ${esc(d.store)}</span></span><span class="money">${fmtR(d.price)}</span>`,
-    'No specials saved yet.');
-  renderList('#list-prices', state.prices.slice(0, 10), (p) =>
-    `<span class="grow">${esc(p.item)} <span class="dim">· ${esc(p.store)}</span></span><span class="money">${fmtR(p.price)}</span>`,
-    'None yet — scan a receipt or add prices you know.');
-  renderPlanTab();
-  renderShopTab();
-  $('#btn-build').textContent = state.plan ? 'Update my plan' : 'Build my plan';
+    'Empty — tap the buttons above or type what you have.');
+  renderDealsList();
+  renderPlanResult();
+  const main = $('#btn-build');
+  if (main && !main.disabled) main.textContent = state.plan ? 'Rebuild my plan' : 'Build my plan';
 }
 
 function renderGauge() {
@@ -482,19 +407,6 @@ function renderGauge() {
     (tight
       ? '<span class="mode">Tight budget — the plan will stick to filling staples.</span>'
       : '<span class="mode">Workable — there\'s room for some variety.</span>');
-}
-
-function renderHomeSummary() {
-  const el = $('#home-summary');
-  if (!state.plan) { el.innerHTML = ''; return; }
-  const total = planTotal();
-  const left = state.plan.budget - total;
-  el.innerHTML = `
-    <div class="card balance" data-action="goto-shop" style="cursor:pointer">
-      <div class="label">Left over if you buy the whole list</div>
-      <div class="amount ${left < 0 ? 'neg' : ''}">${fmtR(left)}</div>
-      <div class="sub">List: ${fmtR(total)} of ${fmtR(state.plan.budget)} · made ${esc(state.plan.madeAt)} · tap to open</div>
-    </div>`;
 }
 
 function renderChips() {
@@ -516,24 +428,14 @@ function renderList(sel, items, rowHtml, emptyText) {
   ).join('');
 }
 
-function renderReceiptDraft() {
-  const el = $('#draft-receipt');
-  if (!receiptDraft) { el.innerHTML = ''; return; }
-  el.innerHTML = `
-    <div class="draft">
-      <div class="draft-head">${esc(receiptDraft.store || 'Store unknown')} · ${esc(receiptDraft.date)} — untick anything that's wrong</div>
-      <div class="scroll">${receiptDraft.items.map((it) => `
-        <label class="check">
-          <input type="checkbox" data-action="toggle-draft" data-kind="receipt" data-id="${it.id}" ${it.include ? 'checked' : ''}>
-          <span class="grow">${esc(it.name)}</span>
-          <span class="money">${fmtR(it.price)}</span>
-        </label>`).join('')}
-      </div>
-      <div class="row">
-        <button class="btn small" data-action="confirm-receipt">Add to pantry &amp; prices</button>
-        <button class="btn small danger-ghost" data-action="discard-receipt">Discard</button>
-      </div>
-    </div>`;
+function renderDealsList() {
+  renderList('#list-deals', state.deals, (d) =>
+    `<span class="grow">${esc(d.item)} <span class="dim">· ${esc(d.store)}</span></span><span class="money">${fmtR(d.price)}</span>`,
+    'No deals saved yet — upload this week\'s specials above.');
+  if (state.deals.length) {
+    $('#list-deals').insertAdjacentHTML('beforeend',
+      '<button class="btn small danger-ghost" data-action="clear-deals" style="margin-top:10px">Clear old deals</button>');
+  }
 }
 
 function renderDealsDraft() {
@@ -544,7 +446,7 @@ function renderDealsDraft() {
       <div class="draft-head">Found ${dealsDraft.length} deal${dealsDraft.length === 1 ? '' : 's'} — untick anything that's wrong</div>
       <div class="scroll">${dealsDraft.map((it) => `
         <label class="check">
-          <input type="checkbox" data-action="toggle-draft" data-kind="deals" data-id="${it.id}" ${it.include ? 'checked' : ''}>
+          <input type="checkbox" data-action="toggle-draft" data-id="${it.id}" ${it.include ? 'checked' : ''}>
           <span class="grow">${esc(it.name)}${it.qty ? ` <span class="dim">(${esc(it.qty)})</span>` : ''} <span class="dim">${esc(it.store)}</span></span>
           <span class="money">${fmtR(it.price)}</span>
         </label>`).join('')}
@@ -556,43 +458,9 @@ function renderDealsDraft() {
     </div>`;
 }
 
-function renderPlanTab() {
-  const el = $('#plan-content');
-  if (!state.plan) {
-    el.innerHTML = `<div class="empty-state">No meal plan yet.<br>Set your budget on Home, then build a plan.<br>
-      <button class="btn" data-action="goto-home">Go to Home</button></div>`;
-    return;
-  }
-  const p = state.plan;
-  let html = '';
-  if (p.warnings.length) {
-    html += `<div class="card warnings">${p.warnings.map((w) => `<p>${esc(w)}</p>`).join('')}</div>`;
-  }
-  if (p.pantryUsed.length) {
-    html += `<div class="card"><h2>From your pantry</h2><p class="hint" style="margin:0">${esc(p.pantryUsed.join(', '))}</p></div>`;
-  }
-  html += p.days.map((d) => `
-    <div class="day-card">
-      <span class="day-num">${esc(d.d)}</span><strong>Day ${esc(d.d)}</strong>
-      <div class="meals">
-        <div><span class="m">Breakfast · </span>${esc(d.b || '—')}</div>
-        <div><span class="m">Lunch · </span>${esc(d.l || '—')}</div>
-        <div><span class="m">Dinner · </span>${esc(d.dn || '—')}</div>
-        ${d.kid ? `<div class="kid">🥛 ${esc(d.kid)}</div>` : ''}
-        ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
-      </div>
-    </div>`).join('');
-  html += `<button class="btn-big ghost btn" data-action="goto-home-rebuild">↻ Adjust &amp; rebuild plan</button>`;
-  el.innerHTML = html;
-}
-
-function renderShopTab() {
-  const el = $('#shop-content');
-  if (!state.plan) {
-    el.innerHTML = `<div class="empty-state">Your shopping list appears here<br>once you've built a plan.<br>
-      <button class="btn" data-action="goto-home">Go to Home</button></div>`;
-    return;
-  }
+function renderPlanResult() {
+  const el = $('#plan-result');
+  if (!state.plan) { el.innerHTML = ''; return; }
   const p = state.plan;
   const total = planTotal();
   const basket = basketTotal();
@@ -606,14 +474,19 @@ function renderShopTab() {
       <div class="sub">List ${fmtR(total)} of ${fmtR(p.budget)} budget</div>
       <div class="basket-bar"><div style="width:${pct}%"></div></div>
       <div class="sub">In basket: ${fmtR(basket)}</div>
-    </div>
+    </div>`;
+
+  if (p.warnings.length) {
+    html += `<div class="card warnings">${p.warnings.map((w) => `<p>${esc(w)}</p>`).join('')}</div>`;
+  }
+
+  html += `
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <h2 style="margin:0">Shopping list</h2>
         <button class="btn small ghost" data-action="copy-list">Copy</button>
       </div>
-      <p class="hint">Tap an item when it's in your basket. Tap a price to correct it — totals update.</p>`;
-
+      <p class="hint">Tap an item when it's in your basket. Tap a price to correct it. ✕ removes an item.</p>`;
   for (const cat of CAT_ORDER) {
     const items = p.list.filter((it) => it.cat === cat);
     if (!items.length) continue;
@@ -623,16 +496,35 @@ function renderShopTab() {
         <span class="tick">${it.checked ? '✓' : ''}</span>
         <span class="grow">${esc(it.i)} <span class="qty">${esc(it.q)}</span>${it.store ? ` <span class="qty">· ${esc(it.store)}</span>` : ''}</span>
         <span class="money" data-action="edit-price" data-id="${it.id}">${fmtR(it.p)}${it.estimated ? '<span class="est">*</span>' : ''}</span>
+        <button class="x" data-action="remove-item" data-id="${it.id}" aria-label="Remove">✕</button>
       </div>`).join('');
   }
+  if (p.pantryUsed.length) {
+    html += `<p class="hint" style="margin-top:10px">From your pantry: ${esc(p.pantryUsed.join(', '))}</p>`;
+  }
+  html += `<p class="hint">* estimated price — tap to enter the shelf price.</p></div>`;
+
+  html += `<div class="card"><h2>Meals — tap any meal to change it</h2>`;
+  html += p.days.map((d, idx) => `
+    <div class="day-card">
+      <span class="day-num">${esc(d.d)}</span><strong>Day ${esc(d.d)}</strong>
+      <div class="meals">
+        <div data-action="edit-meal" data-idx="${idx}" data-slot="b"><span class="m">Breakfast · </span>${esc(d.b || '—')}</div>
+        <div data-action="edit-meal" data-idx="${idx}" data-slot="l"><span class="m">Lunch · </span>${esc(d.l || '—')}</div>
+        <div data-action="edit-meal" data-idx="${idx}" data-slot="dn"><span class="m">Dinner · </span>${esc(d.dn || '—')}</div>
+        ${d.kid ? `<div class="kid" data-action="edit-meal" data-idx="${idx}" data-slot="kid">🥛 ${esc(d.kid)}</div>` : ''}
+        ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
+      </div>
+    </div>`).join('');
+  html += `</div>`;
 
   html += `
-      <p class="hint" style="margin-top:10px">* estimated price — tap to enter the shelf price.</p>
-      <div class="row" style="margin-top:8px">
-        <button class="btn small ghost" data-action="add-shop-item">＋ Add item</button>
-        <button class="btn small danger-ghost" data-action="reset-checks">Untick all</button>
-      </div>
+    <div class="card">
+      <h2>Change something bigger?</h2>
+      <textarea id="in-tweak" rows="2" placeholder="e.g. less meat, add samp, keep R100 aside">${esc(state.tweak || '')}</textarea>
+      <button class="btn-big" data-action="build">Apply &amp; rebuild plan</button>
     </div>`;
+
   el.innerHTML = html;
 }
 
@@ -672,23 +564,16 @@ function onAction(e) {
   switch (action) {
     case 'build': generatePlan(); break;
 
-    case 'goto-home': switchTab('home'); break;
-    case 'goto-shop': switchTab('shop'); break;
-    case 'goto-home-rebuild': switchTab('home'); $('#in-tweak').focus(); break;
-
-    case 'pick-receipt': $('#file-receipt').click(); break;
-    case 'pick-pdf': $('#file-pdf').click(); break;
-    case 'toggle-deal-paste': $('#deal-paste').classList.toggle('hidden'); break;
-    case 'parse-deals': parseDealsText(); break;
-
-    case 'confirm-receipt': confirmReceipt(); break;
-    case 'discard-receipt': receiptDraft = null; renderReceiptDraft(); break;
+    case 'pick-deals': $('#file-deals').click(); break;
     case 'confirm-deals': confirmDeals(); break;
     case 'discard-deals': dealsDraft = null; renderDealsDraft(); break;
+    case 'clear-deals':
+      state.deals = [];
+      save(); render();
+      break;
 
     case 'toggle-draft': {
-      const set = el.dataset.kind === 'receipt' ? (receiptDraft && receiptDraft.items) : dealsDraft;
-      const it = set && set.find((x) => x.id === id);
+      const it = dealsDraft && dealsDraft.find((x) => x.id === id);
       if (it) it.include = el.checked;
       break;
     }
@@ -703,25 +588,9 @@ function onAction(e) {
     }
 
     case 'remove': {
-      const key = { pantry: 'pantry', deals: 'deals', prices: 'prices' }[el.dataset.kind];
+      const key = { pantry: 'pantry', deals: 'deals' }[el.dataset.kind];
       if (key) {
         state[key] = state[key].filter((x) => x.id !== id);
-        save(); render();
-      }
-      break;
-    }
-
-    case 'edit-price': {
-      e.stopPropagation();
-      const it = state.plan && state.plan.list.find((x) => x.id === id);
-      if (!it) break;
-      const v = prompt(`Shelf price for ${it.i} (${it.q})`, it.p ? String(it.p) : '');
-      if (v === null) break;
-      const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.]/g, ''));
-      if (!isNaN(n) && n >= 0) {
-        it.p = n;
-        it.estimated = false;
-        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10), source: 'manual' });
         save(); render();
       }
       break;
@@ -733,29 +602,53 @@ function onAction(e) {
       break;
     }
 
-    case 'add-shop-item': {
-      const name = prompt('Item name');
-      if (!name || !name.trim()) break;
-      const priceStr = prompt(`Price for ${name.trim()} (R)`, '');
-      const n = parseFloat(String(priceStr || '').replace(',', '.').replace(/[^\d.]/g, '')) || 0;
-      state.plan.list.push({ id: uid(), i: name.trim().slice(0, 80), q: '', p: n, estimated: false, cat: 'other', store: '', checked: false });
+    case 'edit-price': {
+      const it = state.plan && state.plan.list.find((x) => x.id === id);
+      if (!it) break;
+      const v = prompt(`Shelf price for ${it.i} (${it.q})`, it.p ? String(it.p) : '');
+      if (v === null) break;
+      const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(n) && n >= 0) {
+        it.p = n;
+        it.estimated = false;
+        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10) });
+        save(); render();
+      }
+      break;
+    }
+
+    case 'remove-item': {
+      state.plan.list = state.plan.list.filter((x) => x.id !== id);
       save(); render();
       break;
     }
 
-    case 'reset-checks': {
-      state.plan.list.forEach((it) => { it.checked = false; });
+    case 'edit-meal': {
+      const idx = parseInt(el.dataset.idx, 10);
+      const slot = el.dataset.slot;
+      const day = state.plan && state.plan.days[idx];
+      if (!day) break;
+      const v = prompt(`Day ${day.d} — change ${MEAL_LABEL[slot] || 'meal'}:`, day[slot] || '');
+      if (v === null) break;
+      day[slot] = v.trim().slice(0, 80);
       save(); render();
       break;
     }
+
+    case 'copy-list': copyList(); break;
   }
 }
 
 function bindEvents() {
-  document.addEventListener('click', onAction);
-  // checkbox toggles fire 'change', not click-with-checked-state
+  document.addEventListener('click', (e) => {
+    // the price tap and remove ✕ sit inside the tickable row — handle innermost only
+    onAction(e);
+  });
   document.addEventListener('change', (e) => {
     if (e.target.matches('[data-action="toggle-draft"]')) onAction(e);
+  });
+  document.addEventListener('input', (e) => {
+    if (e.target.id === 'in-tweak') { state.tweak = e.target.value; save(); }
   });
 
   document.querySelectorAll('.bottom-nav button').forEach((b) => {
@@ -767,7 +660,6 @@ function bindEvents() {
       state.settings[input.dataset.setting] = input.value;
       save();
       renderGauge();
-      renderHomeSummary();
     });
   });
 
@@ -775,8 +667,7 @@ function bindEvents() {
   $('#in-server').addEventListener('input', (e) => { state.serverBase = e.target.value.trim(); save(); });
   $('#in-apikey').addEventListener('input', (e) => { state.apiKey = e.target.value.trim(); save(); });
 
-  $('#file-receipt').addEventListener('change', (e) => { handleReceiptFile(e.target.files[0]); e.target.value = ''; });
-  $('#file-pdf').addEventListener('change', (e) => { handlePdfFile(e.target.files[0]); e.target.value = ''; });
+  $('#file-deals').addEventListener('change', (e) => { handleDealsFile(e.target.files[0]); e.target.value = ''; });
 
   $('#form-pantry').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -784,26 +675,6 @@ function bindEvents() {
     if (!name) return;
     state.pantry.unshift({ id: uid(), name, qty: $('#in-pantry-qty').value.trim() });
     $('#in-pantry-name').value = ''; $('#in-pantry-qty').value = '';
-    save(); render();
-  });
-
-  $('#form-deal').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const item = $('#in-deal-item').value.trim();
-    const price = parseFloat($('#in-deal-price').value);
-    if (!item || isNaN(price)) return;
-    state.deals.unshift({ id: uid(), item, price, store: $('#in-deal-store').value });
-    $('#in-deal-item').value = ''; $('#in-deal-price').value = '';
-    save(); render();
-  });
-
-  $('#form-price').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const item = $('#in-price-item').value.trim();
-    const price = parseFloat($('#in-price-price').value);
-    if (!item || isNaN(price)) return;
-    state.prices.unshift({ id: uid(), item, price, store: $('#in-price-store').value, date: new Date().toISOString().slice(0, 10), source: 'manual' });
-    $('#in-price-item').value = ''; $('#in-price-price').value = '';
     save(); render();
   });
 }
@@ -814,12 +685,6 @@ function init() {
   load();
   save(); // persist generated userId
 
-  // store dropdowns
-  const opts = STORES.map((s) => `<option>${esc(s)}</option>`).join('');
-  $('#in-deal-store').innerHTML = opts;
-  $('#in-price-store').innerHTML = opts;
-
-  // restore settings into inputs
   document.querySelectorAll('[data-setting]').forEach((input) => {
     input.value = state.settings[input.dataset.setting] || '';
   });
@@ -829,7 +694,7 @@ function init() {
 
   bindEvents();
   render();
-  switchTab('home');
+  switchTab('plan');
 }
 
 init();

@@ -297,3 +297,7 @@ textarea { resize: vertical; }
 }
 .bottom-nav button .ico { font-size: 1.3rem; }
 .bottom-nav button.active { color: var(--maize); }
+
+/* tappable meal lines */
+.day-card .meals [data-action] { cursor: pointer; border-radius: 6px; padding: 2px 4px; margin-left: -4px; }
+.day-card .meals [data-action]:active { background: var(--panel2); }
