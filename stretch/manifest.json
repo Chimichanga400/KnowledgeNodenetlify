@@ -1,0 +1,20 @@
+{
+  "name": "Stretch the Rand",
+  "short_name": "Stretch",
+  "description": "Plan meals, track prices and save on grocery deals on a real South African budget.",
+  "start_url": "/stretch/",
+  "scope": "/stretch/",
+  "display": "standalone",
+  "background_color": "#211E1A",
+  "theme_color": "#211E1A",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "finance", "shopping"]
+}

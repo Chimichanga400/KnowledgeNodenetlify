@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#211E1A" />
+  <meta name="description" content="Stretch the Rand — plan meals, track prices and save on grocery deals on a real South African budget." />
+  <title>Stretch the Rand</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header class="app-header">
+    <h1>Stretch the Rand</h1>
+    <p>Plan meals. Track prices. Save on deals.</p>
+  </header>
+
+  <main>
+
+    <!-- HOME -->
+    <section id="tab-home" class="tab">
+      <div class="card">
+        <h2>Your budget</h2>
+        <div class="grid2">
+          <label>Budget (R)
+            <input id="in-budget" type="number" inputmode="decimal" min="0" placeholder="1500" data-setting="budget" />
+          </label>
+          <label>Days to cover
+            <input id="in-days" type="number" inputmode="numeric" min="1" max="31" placeholder="7" data-setting="days" />
+          </label>
+          <label>Adults
+            <input id="in-adults" type="number" inputmode="numeric" min="0" max="20" placeholder="2" data-setting="adults" />
+          </label>
+          <label>Children
+            <input id="in-kids" type="number" inputmode="numeric" min="0" max="20" placeholder="0" data-setting="kids" />
+          </label>
+        </div>
+        <div id="gauge" class="gauge hidden"></div>
+      </div>
+
+      <div class="card">
+        <h2>Anything to change?</h2>
+        <textarea id="in-tweak" rows="2" placeholder="Optional, e.g. less meat, add samp, keep R100 aside for electricity"></textarea>
+        <button id="btn-build" class="btn-big" data-action="build">Build my plan</button>
+        <p id="err-build" class="err hidden"></p>
+        <p class="hint">Uses what's in your pantry, your known prices and this week's deals.</p>
+      </div>
+
+      <div id="home-summary"></div>
+
+      <details class="card advanced">
+        <summary>Connection settings</summary>
+        <label>App token (only if your server requires one)
+          <input id="in-token" type="password" autocomplete="off" placeholder="Leave empty if unsure" />
+        </label>
+      </details>
+    </section>
+
+    <!-- STOCK -->
+    <section id="tab-stock" class="tab hidden">
+
+      <div class="card">
+        <h2>Scan a till slip</h2>
+        <p class="hint">Snap a photo of a receipt — items and prices get read for you and added to your pantry and price history.</p>
+        <input id="file-receipt" type="file" accept="image/*" capture="environment" class="hidden" />
+        <button id="btn-receipt" class="btn" data-action="pick-receipt">📷 Scan receipt</button>
+        <p id="err-receipt" class="err hidden"></p>
+        <div id="draft-receipt"></div>
+      </div>
+
+      <div class="card">
+        <h2>This week's deals</h2>
+        <p class="hint">Upload a store catalogue PDF or paste specials as text. Deal prices are used when they're the cheapest option.</p>
+        <input id="file-pdf" type="file" accept="application/pdf" class="hidden" />
+        <div class="row">
+          <button id="btn-pdf" class="btn" data-action="pick-pdf">📄 Catalogue PDF</button>
+          <button id="btn-deals-text" class="btn ghost" data-action="toggle-deal-paste">✍️ Paste text</button>
+        </div>
+        <div id="deal-paste" class="hidden">
+          <textarea id="in-dealtext" rows="3" placeholder="Paste specials here, e.g. Maize meal 5kg R74.99 Shoprite…"></textarea>
+          <button id="btn-parse-deals" class="btn" data-action="parse-deals">Read pasted deals</button>
+        </div>
+        <p id="err-deals" class="err hidden"></p>
+        <div id="draft-deals"></div>
+        <form id="form-deal" class="row addrow">
+          <input id="in-deal-item" placeholder="Item on special" />
+          <input id="in-deal-price" type="number" inputmode="decimal" min="0" step="0.01" placeholder="R" class="price" />
+          <select id="in-deal-store"></select>
+          <button type="submit" class="btn plus">＋</button>
+        </form>
+        <div id="list-deals"></div>
+      </div>
+
+      <div class="card">
+        <h2>Pantry — what's in the house</h2>
+        <div id="staple-chips" class="chips"></div>
+        <form id="form-pantry" class="row addrow">
+          <input id="in-pantry-name" placeholder="Item, e.g. rice" />
+          <input id="in-pantry-qty" placeholder="Qty, e.g. 2kg" class="qty" />
+          <button type="submit" class="btn plus">＋</button>
+        </form>
+        <div id="list-pantry"></div>
+      </div>
+
+      <div class="card">
+        <h2>Known prices</h2>
+        <form id="form-price" class="row addrow">
+          <input id="in-price-item" placeholder="Item" />
+          <input id="in-price-price" type="number" inputmode="decimal" min="0" step="0.01" placeholder="R" class="price" />
+          <select id="in-price-store"></select>
+          <button type="submit" class="btn plus">＋</button>
+        </form>
+        <div id="list-prices"></div>
+      </div>
+    </section>
+
+    <!-- PLAN -->
+    <section id="tab-plan" class="tab hidden">
+      <div id="plan-content"></div>
+    </section>
+
+    <!-- SHOP -->
+    <section id="tab-shop" class="tab hidden">
+      <div id="shop-content"></div>
+    </section>
+
+  </main>
+
+  <nav class="bottom-nav">
+    <button data-tab="home" class="active"><span class="ico">🏠</span>Home</button>
+    <button data-tab="stock"><span class="ico">🧺</span>Stock</button>
+    <button data-tab="plan"><span class="ico">🍲</span>Meals</button>
+    <button data-tab="shop"><span class="ico">🛒</span>Shop</button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
