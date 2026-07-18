@@ -53,7 +53,11 @@
 
       <details class="card advanced">
         <summary>Connection settings</summary>
-        <label>Server address (only needed if this page is not hosted on your Netlify site)
+        <label>Anthropic API key — makes the app work anywhere, no server needed
+          <input id="in-apikey" type="password" autocomplete="off" placeholder="sk-ant-…" />
+        </label>
+        <p class="hint">Get a key at console.anthropic.com. It's stored only on this phone — don't share this device's browser data or the file with the key typed in.</p>
+        <label>Server address (alternative: use your Netlify site's AI instead of a key)
           <input id="in-server" type="url" autocomplete="off" placeholder="https://your-site.netlify.app" />
         </label>
         <label>App token (only if your server requires one)

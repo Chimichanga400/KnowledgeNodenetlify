@@ -21,6 +21,7 @@ let state = {
   plan: null,   // {list:[{id,i,q,p,estimated,cat,store,checked}], pantryUsed, warnings, days, budget, madeAt}
   appToken: '',
   serverBase: '',
+  apiKey: '',
   userId: '',
 };
 
@@ -44,12 +45,18 @@ function load() {
 }
 
 let saveTimer = null;
+function flushSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* full/private mode */ }
+}
 function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* full/private mode */ }
-  }, 300);
+  saveTimer = setTimeout(flushSave, 300);
 }
+// don't lose a just-made change when the app is closed or backgrounded
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 
 /* ================= helpers ================= */
 
@@ -130,21 +137,27 @@ function proxyUrl() {
   if (base && !/^https?:\/\//i.test(base)) base = 'https://' + base;
   if (base) return base + PROXY_PATH;
   if (!/^https?:$/.test(location.protocol)) {
-    throw new Error('This copy of the app was opened straight from a file, so it has no server. On the Home tab, open Connection settings and enter your site address (e.g. https://your-site.netlify.app) — or just use the app from that site directly.');
+    throw new Error('AI needs a connection. On the Home tab, open Connection settings and paste your Anthropic API key (works anywhere) — or enter your site address (e.g. https://your-site.netlify.app).');
   }
   return PROXY_PATH;
 }
 
 async function callClaude({ system, userContent, maxTokens = 3000 }) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'x-app-user-id': state.userId,
-  };
-  if (state.appToken) headers['x-app-token'] = state.appToken;
+  // Serverless mode: a personal API key talks to the Anthropic API directly.
+  const url = state.apiKey ? 'https://api.anthropic.com/v1/messages' : proxyUrl();
+  const headers = { 'Content-Type': 'application/json' };
+  if (state.apiKey) {
+    headers['x-api-key'] = state.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    headers['anthropic-dangerous-direct-browser-access'] = 'true';
+  } else {
+    headers['x-app-user-id'] = state.userId;
+    if (state.appToken) headers['x-app-token'] = state.appToken;
+  }
 
   let res;
   try {
-    res = await fetch(proxyUrl(), {
+    res = await fetch(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -158,6 +171,7 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
     if (e instanceof TypeError) {
       // network-level failure: offline, wrong server address, or the server refused this page's origin
       const hosted = /^https?:$/.test(location.protocol);
+      if (state.apiKey) throw new Error("Couldn't reach the AI service. Check your internet connection and try again.");
       throw new Error(hosted && !state.serverBase
         ? "Couldn't reach the AI server. Check your internet connection and try again."
         : "Couldn't reach the AI server. Check your internet, the Server address under Connection settings, and that your App token is filled in (a copy of the app running outside the site needs the token to connect).");
@@ -170,9 +184,11 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
 
   if (!res.ok) {
     const serverMsg = data && data.error && data.error.message;
-    if (res.status === 401) throw new Error(serverMsg === 'Unauthorized'
-      ? 'This server needs an app token — add it under Connection settings on the Home tab.'
-      : 'Not authorised. Check the app token under Connection settings.');
+    if (res.status === 401) throw new Error(state.apiKey
+      ? 'That API key was rejected — check it under Connection settings on the Home tab.'
+      : (serverMsg === 'Unauthorized'
+        ? 'This server needs an app token — add it under Connection settings on the Home tab.'
+        : 'Not authorised. Check the app token under Connection settings.'));
     if (res.status === 402) throw new Error('The AI service on this server requires a subscription.');
     if (res.status === 429) throw new Error('Too many requests — wait a minute and try again.');
     throw new Error(serverMsg || ('Request failed (' + res.status + '). Are you online?'));
@@ -757,6 +773,7 @@ function bindEvents() {
 
   $('#in-token').addEventListener('input', (e) => { state.appToken = e.target.value.trim(); save(); });
   $('#in-server').addEventListener('input', (e) => { state.serverBase = e.target.value.trim(); save(); });
+  $('#in-apikey').addEventListener('input', (e) => { state.apiKey = e.target.value.trim(); save(); });
 
   $('#file-receipt').addEventListener('change', (e) => { handleReceiptFile(e.target.files[0]); e.target.value = ''; });
   $('#file-pdf').addEventListener('change', (e) => { handlePdfFile(e.target.files[0]); e.target.value = ''; });
@@ -808,6 +825,7 @@ function init() {
   });
   $('#in-token').value = state.appToken || '';
   $('#in-server').value = state.serverBase || '';
+  $('#in-apikey').value = state.apiKey || '';
 
   bindEvents();
   render();
