@@ -84,7 +84,12 @@ exports.handler = async (event) => {
   const headers = event.headers || {};
   const origin  = headers.origin || headers.Origin || '';
   const host    = headers.host || headers.Host || '';
-  const allowed = originAllowed(origin, host);
+  // A correct shared secret authorizes any origin (e.g. the single-file app
+  // opened outside the site, where the browser sends Origin: null).
+  const requiredToken = process.env.PROXY_APP_TOKEN;
+  const sentToken = headers['x-app-token'] || headers['X-App-Token'];
+  const tokenOk = !!requiredToken && sentToken === requiredToken;
+  const allowed = originAllowed(origin, host) || tokenOk;
 
   const corsHeaders = {
     'Vary': 'Origin',
@@ -96,7 +101,12 @@ exports.handler = async (event) => {
   // Only echo the origin back when it's allowed (so other sites can't read responses).
   if (origin && allowed) corsHeaders['Access-Control-Allow-Origin'] = origin;
 
-  if (event.httpMethod === 'OPTIONS') return { statusCode: 204, headers: corsHeaders, body: '' };
+  if (event.httpMethod === 'OPTIONS') {
+    // Preflights never carry x-app-token, so echo the origin here; the actual
+    // request is still gated by the origin/token checks below.
+    if (origin) corsHeaders['Access-Control-Allow-Origin'] = origin;
+    return { statusCode: 204, headers: corsHeaders, body: '' };
+  }
   if (event.httpMethod !== 'POST')    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: { message: 'Method Not Allowed' } }) };
 
   // Reject cross-origin browser requests outright (don't spend the key for them).
@@ -105,8 +115,7 @@ exports.handler = async (event) => {
   }
 
   // Optional shared secret.
-  const requiredToken = process.env.PROXY_APP_TOKEN;
-  if (requiredToken && (headers['x-app-token'] || headers['X-App-Token']) !== requiredToken) {
+  if (requiredToken && !tokenOk) {
     return { statusCode: 401, headers: corsHeaders, body: JSON.stringify({ error: { message: 'Unauthorized' } }) };
   }
 

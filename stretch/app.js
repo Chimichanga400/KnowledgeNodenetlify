@@ -126,10 +126,11 @@ function downscaleImage(file, maxEdge = 1568) {
 /* ================= AI calls (via Netlify proxy) ================= */
 
 function proxyUrl() {
-  const base = (state.serverBase || '').trim().replace(/\/+$/, '');
+  let base = (state.serverBase || '').trim().replace(/\/+$/, '');
+  if (base && !/^https?:\/\//i.test(base)) base = 'https://' + base;
   if (base) return base + PROXY_PATH;
-  if (location.protocol === 'file:') {
-    throw new Error('This page was opened as a file — enter your site\'s Server address under Connection settings on the Home tab.');
+  if (!/^https?:$/.test(location.protocol)) {
+    throw new Error('This copy of the app was opened straight from a file, so it has no server. On the Home tab, open Connection settings and enter your site address (e.g. https://your-site.netlify.app) — or just use the app from that site directly.');
   }
   return PROXY_PATH;
 }
@@ -141,16 +142,28 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
   };
   if (state.appToken) headers['x-app-token'] = state.appToken;
 
-  const res = await fetch(proxyUrl(), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: 'user', content: userContent }],
-    }),
-  });
+  let res;
+  try {
+    res = await fetch(proxyUrl(), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: userContent }],
+      }),
+    });
+  } catch (e) {
+    if (e instanceof TypeError) {
+      // network-level failure: offline, wrong server address, or the server refused this page's origin
+      const hosted = /^https?:$/.test(location.protocol);
+      throw new Error(hosted && !state.serverBase
+        ? "Couldn't reach the AI server. Check your internet connection and try again."
+        : "Couldn't reach the AI server. Check your internet, the Server address under Connection settings, and that your App token is filled in (a copy of the app running outside the site needs the token to connect).");
+    }
+    throw e;
+  }
 
   let data = null;
   try { data = await res.json(); } catch (e) { /* non-JSON error body */ }
