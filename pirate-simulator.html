@@ -144,6 +144,37 @@
   .port-btn:disabled { filter: grayscale(0.7) brightness(0.75); cursor: default; }
   .port-note { font-size: 11px; color: #a89877; font-style: italic; line-height: 1.5; }
 
+  /* ---------------- Game-over overlay ---------------- */
+  #gameover {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(3, 7, 12, 0.82);
+    z-index: 50;
+  }
+  #gameover.visible { display: flex; }
+  #go-box {
+    text-align: center;
+    padding: 36px 48px;
+    background: rgba(10, 18, 28, 0.9);
+    border: 1px solid rgba(224, 182, 77, 0.5);
+    border-radius: 14px;
+  }
+  #go-box h1 {
+    font-size: 30px; letter-spacing: 3px; color: #e06a5a;
+    margin-bottom: 14px; text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+  }
+  #go-stats { font-size: 15px; color: #cbb98d; margin-bottom: 22px; line-height: 1.7; }
+  #respawn-btn {
+    padding: 12px 30px;
+    font-family: inherit; font-size: 15px; letter-spacing: 2px;
+    color: #14231c;
+    background: linear-gradient(180deg, #e8c86a, #b98f2e);
+    border: 1px solid #8a6a1e; border-radius: 8px;
+    cursor: pointer;
+  }
+  #respawn-btn:hover { filter: brightness(1.15); }
+
   /* ---------------- Help hint (bottom-right) ---------------- */
   #help { bottom: 14px; right: 14px; font-size: 11px; color: #a89877; max-width: 240px; line-height: 1.6; }
   #help b { color: #e0b64d; }
@@ -177,6 +208,7 @@
 <!-- ================= Telemetry panel ================= -->
 <div id="telemetry" class="panel">
   <h2>Ship's Log</h2>
+  <div class="row"><span class="label">Hull</span>        <span class="value" id="ui-hull">100%</span></div>
   <div class="row"><span class="label">Speed</span>       <span class="value" id="ui-speed">0.0 kn</span></div>
   <div class="row"><span class="label">Heading</span>     <span class="value" id="ui-heading">000°</span></div>
   <div class="row"><span class="label">Sails</span>       <span class="value" id="ui-sails">50%</span></div>
@@ -220,8 +252,18 @@
   <button class="port-btn" id="sell-cargo">Sell Cargo (+30 ea)</button>
   <button class="port-btn" id="trade-run">Trade Run (pay 50 → earn 120)</button>
   <button class="port-btn" id="hire-escort">Hire Escort Sloop (150g)</button>
+  <button class="port-btn" id="repair-hull">Repair Hull</button>
   <div class="port-note">Drop sails to 0% near the pier to stay docked.
     Set sail to weigh anchor.</div>
+</div>
+
+<!-- ================= Game-over overlay ================= -->
+<div id="gameover">
+  <div id="go-box">
+    <h1>☠ Davy Jones' Locker ☠</h1>
+    <p id="go-stats"></p>
+    <button id="respawn-btn">SET SAIL AGAIN</button>
+  </div>
 </div>
 
 <!-- ================= Help panel ================= -->
@@ -671,6 +713,7 @@ const shipState = {
   rudder: 0,            // -45..45 degrees mirror of the rudder slider
   gold: 0,
   cargo: 0,             // plundered crates in the hold (sell at port)
+  hp: 100, maxHp: 100,  // hull integrity; 0 = down to Davy Jones
   cooldown: { port: 0, starboard: 0 },
 };
 
@@ -933,7 +976,16 @@ const MERCHANT = {
   SPAWN_MIN: 200, SPAWN_MAX: 420,
   CRATE_COLLECT_RADIUS: 9, // sail this close to scoop cargo
   CRATE_LIFETIME: 150,     // seconds afloat before sinking away
+  // Stern-chaser guns: traders shoot back while the player is "wanted".
+  GUN_RANGE: 95,           // merchants only fire inside this range
+  GUN_COOLDOWN: 4.5,       // seconds between shots per merchant
+  GUN_DAMAGE: 8,           // hull % per hit on the player
+  AGGRO_TIME: 60,          // seconds of hostility after the player attacks
 };
+
+// Counts down from AGGRO_TIME after every player attack on a trader;
+// while positive, healthy merchants in range return fire.
+let aggroTimer = 0;
 
 const merchantMats = {
   hull: new THREE.MeshStandardMaterial({ color: 0x3f4a52, roughness: 0.9 }),
@@ -1002,6 +1054,7 @@ function spawnMerchant() {
     waypointAge: 999,        // forces a fresh waypoint on the first tick
     sinkTimer: -1,           // -1 = healthy; >= 0 = sinking countdown
     surrendered: false,      // true once battered to her last hit point
+    gunCooldown: Math.random() * MERCHANT.GUN_COOLDOWN,
     bobPhase: Math.random() * Math.PI * 2,
   };
   scene.add(group);
@@ -1116,6 +1169,16 @@ function updateMerchants(dt, elapsed) {
       m.heading,
       Math.cos(elapsed * 0.66 + m.bobPhase) * 0.06
     );
+
+    // ---- Return fire: wanted player in range eats a chaser ball ----
+    m.gunCooldown -= dt;
+    if (aggroTimer > 0 && !playerSink.active && m.gunCooldown <= 0) {
+      const dPlayer = Math.hypot(ship.position.x - p.x, ship.position.z - p.z);
+      if (dPlayer < MERCHANT.GUN_RANGE) {
+        m.gunCooldown = MERCHANT.GUN_COOLDOWN * (0.8 + Math.random() * 0.4);
+        fireEnemyBall(p, dPlayer);
+      }
+    }
   }
 
   // ---- Loot crates: bob, expire, and get scooped by the player ----
@@ -1147,6 +1210,7 @@ function updateMerchants(dt, elapsed) {
  */
 function damageMerchant(m, hitPos) {
   if (m.sinkTimer >= 0) return false;    // already going down
+  aggroTimer = MERCHANT.AGGRO_TIME;      // piracy makes ye a wanted man
   m.hp -= 1;
   spawnParticles(hitPos, 0xff7722, 30, 12, 0.8, 2.2, 12);
   spawnParticles(hitPos, 0x555555, 16, 7, 1.4, 2.6, 2);   // smoke
@@ -1167,6 +1231,91 @@ function damageMerchant(m, hitPos) {
   }
   return true;
 }
+
+/* ================= PLAYER DAMAGE, SINKING, RESPAWN ================ */
+
+// Enemy cannonballs live in their own array so they never collide with
+// the merchants that fired them — only with the player.
+const enemyBallMat = new THREE.MeshStandardMaterial({
+  color: 0x33201c, roughness: 0.5, metalness: 0.6 });
+const enemyBalls = [];  // [{ mesh, vel }]
+
+/**
+ * A merchant looses a ballistic shot at the player: flight time is
+ * chosen from range, the horizontal velocity leads the player's motion,
+ * and the vertical component is solved so the ball lands at sea level.
+ */
+function fireEnemyBall(fromPos, dist) {
+  const T = THREE.MathUtils.clamp(dist / 28, 0.8, 2.5);   // flight time
+  // Lead the target: aim where the player WILL be, plus scatter.
+  const aimX = ship.position.x + Math.sin(shipState.heading) * shipState.speed * T
+             + (Math.random() - 0.5) * 14;
+  const aimZ = ship.position.z + Math.cos(shipState.heading) * shipState.speed * T
+             + (Math.random() - 0.5) * 14;
+  const vel = new THREE.Vector3(
+    (aimX - fromPos.x) / T,
+    0.5 * PHYSICS.GRAVITY * T,     // rises then lands after exactly T
+    (aimZ - fromPos.z) / T
+  );
+  const mesh = new THREE.Mesh(ballGeo, enemyBallMat);
+  mesh.position.set(fromPos.x, 2.2, fromPos.z);
+  scene.add(mesh);
+  enemyBalls.push({ mesh, vel });
+  spawnParticles(mesh.position.clone(), 0xffa030, 8, 8, 0.3, 1.4, 2);
+}
+
+// Sinking state for the player's flagship (drives the game-over flow).
+const playerSink = { active: false, timer: 0, overlayShown: false };
+
+/** Apply hull damage to the player; at 0 the flagship goes down. */
+function damagePlayer(amount, hitPos) {
+  if (playerSink.active) return;
+  shipState.hp = Math.max(0, shipState.hp - amount);
+  if (hitPos) {
+    spawnParticles(hitPos.clone(), 0xff7722, 22, 10, 0.7, 2.0, 12);
+    spawnParticles(hitPos.clone(), 0x4a3a2a, 12, 6, 1.0, 1.8, 6);  // splinters
+  }
+  if (shipState.hp <= 0) {
+    playerSink.active = true;
+    playerSink.timer = 0;
+    spawnParticles(ship.position.clone().setY(2.5), 0xffaa33, 60, 16, 1.2, 3.0, 10);
+    showToast('Yer ship is going down!');
+  }
+}
+
+/** Reset after death: respawn off the pier, lighter by half yer gold. */
+function respawnPlayer() {
+  const dock = dockWorldPos(new THREE.Vector3());
+  const outward = dock.clone().sub(island.position).setY(0).normalize();
+  ship.position.set(dock.x + outward.x * 30, 0, dock.z + outward.z * 30);
+  shipState.heading = Math.atan2(outward.x, outward.z);   // bow to open sea
+  shipState.speed = 0;
+  shipState.angularVel = 0;
+  shipState.hp = shipState.maxHp;
+  shipState.gold = Math.floor(shipState.gold / 2);   // Davy Jones takes his cut
+  shipState.cargo = 0;                               // cargo went down with her
+  aggroTimer = 0;
+  playerSink.active = false;
+  playerSink.timer = 0;
+  playerSink.overlayShown = false;
+  ship.rotation.set(0, shipState.heading, 0);
+  ui.gameover.classList.remove('visible');
+  showToast('Back on the account — make it count!');
+}
+
+/** Repair hull at the pier: 1 gold buys back 1% of hull. */
+function repairHull() {
+  const missing = shipState.maxHp - shipState.hp;
+  if (missing <= 0 || shipState.gold <= 0) return;
+  const paid = Math.min(missing, shipState.gold);
+  shipState.gold -= paid;
+  shipState.hp += paid;
+  showToast(`Hull patched: +${paid}% (−${paid} gold)`);
+  updatePortUI();
+}
+
+// Slow smoke billows from a battered hull (spawned on a timer below).
+let damageSmokeTimer = 0;
 
 /* ============================ FLEET =============================== */
 
@@ -1346,7 +1495,7 @@ const cannonballs = [];  // [{ mesh, vel: Vector3 }]
  * @param {'port'|'starboard'} side
  */
 function fireBroadside(side) {
-  if (shipState.cooldown[side] > 0) return;
+  if (shipState.cooldown[side] > 0 || playerSink.active) return;
   shipState.cooldown[side] = COMBAT.FIRE_COOLDOWN;
 
   const outSign = side === 'starboard' ? 1 : -1;
@@ -1558,6 +1707,11 @@ const ui = {
   sellCargo:  document.getElementById('sell-cargo'),
   tradeRun:   document.getElementById('trade-run'),
   hireEscort: document.getElementById('hire-escort'),
+  repairHull: document.getElementById('repair-hull'),
+  hull:     document.getElementById('ui-hull'),
+  gameover: document.getElementById('gameover'),
+  goStats:  document.getElementById('go-stats'),
+  respawn:  document.getElementById('respawn-btn'),
   windStatus: document.getElementById('wind-status'),
   sailSlider:   document.getElementById('sail-slider'),
   rudderSlider: document.getElementById('rudder-slider'),
@@ -1584,6 +1738,8 @@ ui.fireStarboard.addEventListener('click', () => fireBroadside('starboard'));
 ui.sellCargo.addEventListener('click', sellCargo);
 ui.tradeRun.addEventListener('click', startTradeRun);
 ui.hireEscort.addEventListener('click', hireEscort);
+ui.repairHull.addEventListener('click', repairHull);
+ui.respawn.addEventListener('click', respawnPlayer);
 
 /** Refresh the port menu's cargo line and button enabled states. */
 function updatePortUI() {
@@ -1599,6 +1755,11 @@ function updatePortUI() {
   ui.hireEscort.textContent = fleet.length >= FLEET.MAX
     ? 'Fleet at full strength'
     : `Hire Escort Sloop (${FLEET.ESCORT_COST}g) [${fleet.length}/${FLEET.MAX}]`;
+  const missing = shipState.maxHp - shipState.hp;
+  ui.repairHull.disabled = missing <= 0 || shipState.gold <= 0;
+  ui.repairHull.textContent = missing <= 0
+    ? 'Hull sound as a bell'
+    : `Repair Hull (+${Math.min(missing, shipState.gold)}% · 1g each)`;
 }
 
 /** Briefly disable + grey a fire button while its side reloads. */
@@ -1768,6 +1929,22 @@ camera.lookAt(0, 3, 0);
  * is identical across frame rates.
  */
 function updateShipPhysics(dt, elapsed) {
+  // ---- Sinking: physics gives way to the death plunge ----
+  if (playerSink.active) {
+    playerSink.timer += dt;
+    const s = Math.min(playerSink.timer / 3.5, 1);
+    ship.position.y = waveHeight(ship.position.x, ship.position.z, elapsed) + 0.4 - s * 8;
+    ship.rotation.set(s * 0.5, shipState.heading, s * 0.3);   // bow-down roll
+    if (s >= 1 && !playerSink.overlayShown) {
+      playerSink.overlayShown = true;
+      ui.goStats.innerHTML =
+        `Yer flagship rests on the seabed.<br>` +
+        `Davy Jones claims half yer ${shipState.gold} gold and all yer cargo.`;
+      ui.gameover.classList.add('visible');
+    }
+    return { windDot: 0, windEfficiency: 0 };
+  }
+
   shipForward(_forward);
 
   // ---- Wind & sail thrust -----------------------------------------
@@ -1847,10 +2024,26 @@ function updateShipPhysics(dt, elapsed) {
 /* ==================== PROJECTILES & COMBAT STEP =================== */
 
 function updateCombat(dt, elapsed) {
+  // The heat dies down eventually — merchants forgive, slowly.
+  aggroTimer = Math.max(0, aggroTimer - dt);
+
   // Integrate every cannonball under gravity (true parabolic flight).
   for (const ball of cannonballs) {
     ball.vel.y -= PHYSICS.GRAVITY * dt;
     ball.mesh.position.addScaledVector(ball.vel, dt);
+  }
+
+  // Enemy return fire: integrate, then test against the player's hull.
+  for (let i = enemyBalls.length - 1; i >= 0; i--) {
+    const ball = enemyBalls[i];
+    ball.vel.y -= PHYSICS.GRAVITY * dt;
+    ball.mesh.position.addScaledVector(ball.vel, dt);
+    if (!playerSink.active &&
+        ball.mesh.position.distanceToSquared(ship.position) < 5.5 * 5.5) {
+      damagePlayer(MERCHANT.GUN_DAMAGE, ball.mesh.position);
+      scene.remove(ball.mesh);
+      enemyBalls.splice(i, 1);
+    }
   }
 
   // Distance-based collision: ball vs. merchants first (bigger targets).
@@ -1962,6 +2155,10 @@ function verifySystemState(elapsed) {
     lastValid.angularVel = shipState.angularVel;
   }
 
+  // Hull integrity must stay a real number in [0, maxHp].
+  if (!Number.isFinite(shipState.hp)) shipState.hp = shipState.maxHp;
+  shipState.hp = THREE.MathUtils.clamp(shipState.hp, 0, shipState.maxHp);
+
   // Also guard individual cannonballs — a corrupt one is simply culled.
   for (let i = cannonballs.length - 1; i >= 0; i--) {
     const bp = cannonballs[i].mesh.position;
@@ -2003,6 +2200,9 @@ function verifySystemState(elapsed) {
     for (const b of cannonballs) {
       b.mesh.position.x -= shiftX;  b.mesh.position.z -= shiftZ;
     }
+    for (const b of enemyBalls) {
+      b.mesh.position.x -= shiftX;  b.mesh.position.z -= shiftZ;
+    }
     for (const burst of particleBursts) {
       const arr = burst.points.geometry.attributes.position.array;
       for (let i = 0; i < arr.length; i += 3) {
@@ -2013,6 +2213,22 @@ function verifySystemState(elapsed) {
   }
 
   // ---------- 3) Projectile cleanup sweep --------------------------
+  // Enemy shot cleanup mirrors the player-ball rules below (water,
+  // island, range, NaN) without duplicating the splash flourish.
+  for (let i = enemyBalls.length - 1; i >= 0; i--) {
+    const bp = enemyBalls[i].mesh.position;
+    const bad = !Number.isFinite(bp.x) || !Number.isFinite(bp.y) || !Number.isFinite(bp.z);
+    if (bad || bp.y < 0 ||
+        bp.distanceToSquared(ship.position) >
+          COMBAT.MAX_BALL_RANGE * COMBAT.MAX_BALL_RANGE) {
+      if (!bad && bp.y < 0) {
+        spawnParticles(new THREE.Vector3(bp.x, 0.3, bp.z), 0xcfe8f0, 10, 5, 0.5, 1.3, 10);
+      }
+      scene.remove(enemyBalls[i].mesh);
+      enemyBalls.splice(i, 1);
+    }
+  }
+
   for (let i = cannonballs.length - 1; i >= 0; i--) {
     const ball = cannonballs[i];
     const bp = ball.mesh.position;
@@ -2060,6 +2276,10 @@ function updateHUD(windDot) {
   ui.cargo.textContent = String(shipState.cargo);
   ui.fleet.textContent = `${fleet.length} ship${fleet.length === 1 ? '' : 's'}`;
   ui.gold.textContent = String(shipState.gold);
+  // Hull readout tinted by severity: sound → battered → critical.
+  ui.hull.textContent = `${Math.round(shipState.hp)}%`;
+  ui.hull.style.color =
+    shipState.hp > 60 ? '#9fd89a' : shipState.hp > 30 ? '#e8c86a' : '#e06a5a';
 
   const pos = pointOfSail(windDot);
   ui.windStatus.textContent = pos.text;
@@ -2088,6 +2308,17 @@ function animate() {
   updateCombat(dt, elapsed);
   updateParticles(dt);
 
+  // Battle damage smoke: the lower the hull, the thicker the billows.
+  if (shipState.hp < 60 && !playerSink.active) {
+    damageSmokeTimer -= dt;
+    if (damageSmokeTimer <= 0) {
+      damageSmokeTimer = 0.1 + (shipState.hp / 60) * 0.5;  // 0.1s..0.6s
+      _vec.set((Math.random() - 0.5) * 3, 2.2, (Math.random() - 0.5) * 8)
+        .applyQuaternion(ship.quaternion).add(ship.position);
+      spawnParticles(_vec, 0x3a3a3e, 4, 2.0, 1.8, 2.4, -1.5);  // rises
+    }
+  }
+
   // ---- Mandatory self-verification & correction (every frame) ----
   verifySystemState(elapsed);
 
@@ -2113,6 +2344,7 @@ window.__pirateDebug = {
   merchants, lootCrates, spawnLootCrate, damageMerchant,
   island, port, dockWorldPos, ECONOMY,
   fleet, FLEET, hireEscort,
+  enemyBalls, playerSink, damagePlayer, respawnPlayer, repairHull,
 };
 </script>
 </body>
