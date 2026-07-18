@@ -366,7 +366,7 @@ window.addEventListener('resize', () => {
 
 // The "sun": a warm directional light angled low for long dramatic shadows
 // on the sails, plus a cool hemisphere fill so shadowed faces stay readable.
-const sun = new THREE.DirectionalLight(0xfff2d8, 2.2);
+const sun = new THREE.DirectionalLight(0xffe2b8, 2.3);   // golden-hour warmth
 sun.position.set(-300, 380, 220);
 scene.add(sun);
 
@@ -696,12 +696,116 @@ function buildShip() {
   lantern.position.set(0, 4.4, -7.2);
   ship.add(lantern);
 
-  return { group: ship, sails, muzzles };
+  // Pirate pennant at the mainmast head. Its geometry is rippled every
+  // frame in the animation loop so it streams in the wind.
+  const flagGeoLocal = new THREE.PlaneGeometry(2.6, 0.7, 10, 1);
+  flagGeoLocal.translate(1.3, 0, 0);   // hoist (left edge) at the pole
+  const flag = new THREE.Mesh(flagGeoLocal, new THREE.MeshStandardMaterial({
+    color: 0x8a1a1a, side: THREE.DoubleSide, roughness: 0.9 }));
+  flag.position.set(0, 1.75 + 13.0 - 0.4, -2.2);   // mainmast truck
+  ship.add(flag);
+
+  return { group: ship, sails, muzzles, flag };
 }
 
 const shipParts = buildShip();
 const ship = shipParts.group;
 scene.add(ship);
+
+/* ======================= SKY LIFE: CLOUDS & GULLS ================= */
+
+// Puffy clouds assembled from stretched spheres. They drift with the
+// wind and wrap around the player, so the sky is never empty and never
+// needs re-centering bookkeeping.
+const cloudMat = new THREE.MeshStandardMaterial({
+  color: 0xffffff, roughness: 1.0, transparent: true, opacity: 0.85 });
+const cloudPuffGeo = new THREE.SphereGeometry(1, 8, 6);
+
+const clouds = [];  // [{ group, speed }]
+for (let i = 0; i < 10; i++) {
+  const group = new THREE.Group();
+  const puffs = 3 + Math.floor(Math.random() * 3);
+  for (let p = 0; p < puffs; p++) {
+    const puff = new THREE.Mesh(cloudPuffGeo, cloudMat);
+    puff.position.set((p - puffs / 2) * 14 + (Math.random() - 0.5) * 8,
+                      (Math.random() - 0.5) * 4,
+                      (Math.random() - 0.5) * 12);
+    const s = 10 + Math.random() * 9;
+    puff.scale.set(s * 1.6, s * 0.5, s);   // flattened cumulus look
+    group.add(puff);
+  }
+  const a = Math.random() * Math.PI * 2;
+  const r = 200 + Math.random() * 1100;
+  group.position.set(Math.sin(a) * r, 140 + Math.random() * 90, Math.cos(a) * r);
+  scene.add(group);
+  clouds.push({ group, speed: 2.5 + Math.random() * 3 });
+}
+
+/** Clouds sail downwind; any that fall too far astern wrap ahead. */
+function updateClouds(dt) {
+  for (const c of clouds) {
+    c.group.position.addScaledVector(WIND_DIR, c.speed * dt);
+    const dx = c.group.position.x - ship.position.x;
+    const dz = c.group.position.z - ship.position.z;
+    if (Math.hypot(dx, dz) > 1500) {
+      // Re-enter on the upwind side at a fresh lateral offset.
+      c.group.position.set(
+        ship.position.x - WIND_DIR.x * 1300 + (Math.random() - 0.5) * 900,
+        140 + Math.random() * 90,
+        ship.position.z - WIND_DIR.z * 1300 + (Math.random() - 0.5) * 900);
+    }
+  }
+}
+
+// Gulls: two flapping wing planes each, wheeling around the island.
+const wingGeo = new THREE.PlaneGeometry(1.1, 0.32);
+wingGeo.translate(0.55, 0, 0);   // wing root at the body
+const gullMat = new THREE.MeshStandardMaterial({
+  color: 0xf0f0ea, side: THREE.DoubleSide, roughness: 0.9 });
+
+const birds = [];  // [{ group, wings:[l,r], angle, radius, height, speed, phase }]
+for (let i = 0; i < 6; i++) {
+  const group = new THREE.Group();
+  const left = new THREE.Mesh(wingGeo, gullMat);
+  left.rotation.y = Math.PI;                 // mirror to port
+  const right = new THREE.Mesh(wingGeo, gullMat);
+  group.add(left, right);
+  scene.add(group);
+  birds.push({
+    group, wings: [left, right],
+    angle: Math.random() * Math.PI * 2,
+    radius: 55 + Math.random() * 50,
+    height: 22 + Math.random() * 16,
+    speed: 0.25 + Math.random() * 0.2,       // rad/s around the island
+    phase: Math.random() * Math.PI * 2,
+  });
+}
+
+/** Wheel the gulls around the island with a lazy bob and beating wings. */
+function updateBirds(dt, elapsed) {
+  for (const b of birds) {
+    b.angle += b.speed * dt;
+    b.group.position.set(
+      island.position.x + Math.cos(b.angle) * b.radius,
+      b.height + Math.sin(elapsed * 0.7 + b.phase) * 3,
+      island.position.z + Math.sin(b.angle) * b.radius);
+    // Face along the orbit tangent, then flap.
+    b.group.rotation.y = -b.angle;
+    const flap = Math.sin(elapsed * 9 + b.phase) * 0.55;
+    b.wings[0].rotation.z = -flap;
+    b.wings[1].rotation.z = flap;
+  }
+}
+
+/** Stream the mainmast pennant: a travelling ripple along its cloth. */
+function updateFlag(elapsed) {
+  const pos = shipParts.flag.geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    pos.setZ(i, Math.sin(x * 2.2 - elapsed * 7) * 0.14 * (x / 2.6));
+  }
+  pos.needsUpdate = true;
+}
 
 /* ======================= SHIP PHYSICS STATE ======================= */
 
@@ -1521,8 +1625,9 @@ function fireBroadside(side) {
     scene.add(mesh);
     cannonballs.push({ mesh, vel });
 
-    // Muzzle flash: quick orange particle puff at the gun port.
+    // Muzzle flash plus a lingering gunsmoke cloud that drifts upward.
     spawnParticles(pos, 0xffa030, 10, 9, 0.35, 1.6, 2);
+    spawnParticles(pos, 0x9a9a9e, 7, 2.2, 1.6, 2.4, -0.9);
   }
 
   // ---- The fleet fires with you: 2 guns per escort, same side ----
@@ -1548,6 +1653,7 @@ function fireBroadside(side) {
       scene.add(mesh);
       cannonballs.push({ mesh, vel });
       spawnParticles(pos, 0xffa030, 8, 8, 0.3, 1.4, 2);
+      spawnParticles(pos, 0x9a9a9e, 5, 2.0, 1.4, 2.0, -0.9);
     }
   }
 
@@ -2322,6 +2428,11 @@ function animate() {
   // ---- Mandatory self-verification & correction (every frame) ----
   verifySystemState(elapsed);
 
+  // ---- Atmosphere ----
+  updateClouds(dt);
+  updateBirds(dt, elapsed);
+  updateFlag(elapsed);
+
   // ---- Environment follows the ship for the "infinite" illusion ----
   oceanUniforms.uTime.value = elapsed;
   ocean.position.set(ship.position.x, 0, ship.position.z);
@@ -2345,6 +2456,7 @@ window.__pirateDebug = {
   island, port, dockWorldPos, ECONOMY,
   fleet, FLEET, hireEscort,
   enemyBalls, playerSink, damagePlayer, respawnPlayer, repairHull,
+  clouds, birds,
 };
 </script>
 </body>
