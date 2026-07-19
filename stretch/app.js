@@ -9,7 +9,6 @@ const MODEL = 'claude-opus-4-8'; // server admin config may override
 const STAPLES = ['Maize meal', 'Rice', 'Brown bread', 'Eggs', 'Sunflower oil', 'Sugar', 'Dry beans', 'Tinned fish', 'Cabbage', 'Onions', 'Potatoes', 'Milk'];
 const CAT_ORDER = ['starch', 'protein', 'veg', 'dairy', 'other'];
 const CAT_LABEL = { starch: 'Starch', protein: 'Protein', veg: 'Veg', dairy: 'Dairy', other: 'Other' };
-const MEAL_LABEL = { b: 'breakfast', l: 'lunch', dn: 'dinner', kid: "children's extra" };
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -29,6 +28,7 @@ let state = {
 // transient (not saved)
 let dealsDraft = null; // [{id,name,qty,price,store,include}]
 let activeTab = 'plan';
+let editing = null;    // {type:'price', id} | {type:'meal', idx, slot}
 
 /* ================= persistence ================= */
 
@@ -125,6 +125,17 @@ function downscaleImage(file, maxEdge = 1568) {
   });
 }
 
+/* ================= working overlay ================= */
+
+function showOverlay(msg) {
+  const o = $('#overlay');
+  $('#overlay-msg').textContent = msg || 'Working…';
+  o.classList.remove('hidden');
+}
+function hideOverlay() {
+  $('#overlay').classList.add('hidden');
+}
+
 /* ================= AI calls ================= */
 
 function proxyUrl() {
@@ -138,6 +149,9 @@ function proxyUrl() {
 }
 
 async function callClaude({ system, userContent, maxTokens = 3000 }) {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error("You're offline. Connect to the internet to scan deals or build a plan — everything else keeps working.");
+  }
   // Serverless mode: a personal API key talks to the Anthropic API directly.
   const url = state.apiKey ? 'https://api.anthropic.com/v1/messages' : proxyUrl();
   const headers = { 'Content-Type': 'application/json' };
@@ -246,6 +260,7 @@ async function generatePlan() {
 
   try {
     setBuildBusy(true, 'Building your shopping list…');
+    showOverlay('Building your shopping list…');
 
     const listSystem = 'You are an expert budget grocery planner for South African households, working with realistic current prices at Shoprite, Checkers, Pick n Pay, Boxer and Spar. Rules: '
       + '1) The total cost of the list must stay under the budget with roughly a 5% safety margin. '
@@ -272,6 +287,7 @@ async function generatePlan() {
     if (!list.length) throw new Error('empty list');
 
     setBuildBusy(true, 'Planning your meals…');
+    showOverlay('Planning your meals…');
 
     const shopSummary = list.map((it) => `${it.i} ${it.q}`).join('; ');
     const daysSystem = `You are the same South African budget meal planner. Using ONLY the shopping list and pantry given, build a ${h.days}-day meal calendar for ${h.adults} adult(s) and ${h.kids} child(ren). Rotate bulk items across consecutive days so nothing is wasted; mention rotation in "note" only when it matters. Each meal max 6 words. `
@@ -298,6 +314,7 @@ async function generatePlan() {
       ? e.message
       : "Couldn't build the plan — the answer got cut off. Try again, or trim the pantry list a little.");
   } finally {
+    hideOverlay();
     setBuildBusy(false);
     render();
   }
@@ -319,6 +336,7 @@ async function handleDealsFile(file) {
   try {
     btn.disabled = true;
     btn.textContent = 'Reading deals…';
+    showOverlay('Reading the deals…');
     let contentBlock;
     if (isPdf) {
       contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await fileToBase64(file) } };
@@ -350,6 +368,7 @@ async function handleDealsFile(file) {
   } catch (e) {
     showErr('#err-deals', e.message || "Couldn't read that file. Try a clearer photo or a different PDF.");
   } finally {
+    hideOverlay();
     btn.disabled = false;
     btn.textContent = '⬆️ Upload deals';
     renderDealsDraft();
@@ -491,28 +510,39 @@ function renderPlanResult() {
     const items = p.list.filter((it) => it.cat === cat);
     if (!items.length) continue;
     html += `<div class="cat-head">${CAT_LABEL[cat]}</div>`;
-    html += items.map((it) => `
+    html += items.map((it) => {
+      const priceCell = (editing && editing.type === 'price' && editing.id === it.id)
+        ? `<input class="inline-edit price-edit" type="number" inputmode="decimal" step="0.01" min="0" value="${it.p}" data-commit="price" data-id="${it.id}">`
+        : `<span class="money" data-action="edit-price" data-id="${it.id}">${fmtR(it.p)}${it.estimated ? '<span class="est">*</span>' : ''}</span>`;
+      return `
       <div class="shop-row ${it.checked ? 'checked' : ''}" data-action="toggle-item" data-id="${it.id}">
         <span class="tick">${it.checked ? '✓' : ''}</span>
         <span class="grow">${esc(it.i)} <span class="qty">${esc(it.q)}</span>${it.store ? ` <span class="qty">· ${esc(it.store)}</span>` : ''}</span>
-        <span class="money" data-action="edit-price" data-id="${it.id}">${fmtR(it.p)}${it.estimated ? '<span class="est">*</span>' : ''}</span>
+        ${priceCell}
         <button class="x" data-action="remove-item" data-id="${it.id}" aria-label="Remove">✕</button>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
   if (p.pantryUsed.length) {
     html += `<p class="hint" style="margin-top:10px">From your pantry: ${esc(p.pantryUsed.join(', '))}</p>`;
   }
   html += `<p class="hint">* estimated price — tap to enter the shelf price.</p></div>`;
 
+  const mealLine = (idx, slot, label, value) => {
+    if (editing && editing.type === 'meal' && editing.idx === idx && editing.slot === slot) {
+      return `<label class="m-row"><span class="m">${label} · </span><input class="inline-edit meal-edit" type="text" value="${esc(value)}" data-commit="meal" data-idx="${idx}" data-slot="${slot}"></label>`;
+    }
+    return `<div data-action="edit-meal" data-idx="${idx}" data-slot="${slot}"><span class="m">${label} · </span>${esc(value || '—')}</div>`;
+  };
   html += `<div class="card"><h2>Meals — tap any meal to change it</h2>`;
   html += p.days.map((d, idx) => `
     <div class="day-card">
       <span class="day-num">${esc(d.d)}</span><strong>Day ${esc(d.d)}</strong>
       <div class="meals">
-        <div data-action="edit-meal" data-idx="${idx}" data-slot="b"><span class="m">Breakfast · </span>${esc(d.b || '—')}</div>
-        <div data-action="edit-meal" data-idx="${idx}" data-slot="l"><span class="m">Lunch · </span>${esc(d.l || '—')}</div>
-        <div data-action="edit-meal" data-idx="${idx}" data-slot="dn"><span class="m">Dinner · </span>${esc(d.dn || '—')}</div>
-        ${d.kid ? `<div class="kid" data-action="edit-meal" data-idx="${idx}" data-slot="kid">🥛 ${esc(d.kid)}</div>` : ''}
+        ${mealLine(idx, 'b', 'Breakfast', d.b)}
+        ${mealLine(idx, 'l', 'Lunch', d.l)}
+        ${mealLine(idx, 'dn', 'Dinner', d.dn)}
+        ${d.kid ? mealLine(idx, 'kid', '🥛 Kids', d.kid) : ''}
         ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
       </div>
     </div>`).join('');
@@ -603,21 +633,15 @@ function onAction(e) {
     }
 
     case 'edit-price': {
-      const it = state.plan && state.plan.list.find((x) => x.id === id);
-      if (!it) break;
-      const v = prompt(`Shelf price for ${it.i} (${it.q})`, it.p ? String(it.p) : '');
-      if (v === null) break;
-      const n = parseFloat(String(v).replace(',', '.').replace(/[^\d.]/g, ''));
-      if (!isNaN(n) && n >= 0) {
-        it.p = n;
-        it.estimated = false;
-        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10) });
-        save(); render();
-      }
+      if (!(state.plan && state.plan.list.some((x) => x.id === id))) break;
+      editing = { type: 'price', id };
+      render();
+      focusEditing();
       break;
     }
 
     case 'remove-item': {
+      editing = null;
       state.plan.list = state.plan.list.filter((x) => x.id !== id);
       save(); render();
       break;
@@ -626,17 +650,42 @@ function onAction(e) {
     case 'edit-meal': {
       const idx = parseInt(el.dataset.idx, 10);
       const slot = el.dataset.slot;
-      const day = state.plan && state.plan.days[idx];
-      if (!day) break;
-      const v = prompt(`Day ${day.d} — change ${MEAL_LABEL[slot] || 'meal'}:`, day[slot] || '');
-      if (v === null) break;
-      day[slot] = v.trim().slice(0, 80);
-      save(); render();
+      if (!(state.plan && state.plan.days[idx])) break;
+      editing = { type: 'meal', idx, slot };
+      render();
+      focusEditing();
       break;
     }
 
     case 'copy-list': copyList(); break;
   }
+}
+
+function focusEditing() {
+  const input = document.querySelector('.inline-edit');
+  if (input) { input.focus(); if (input.select) input.select(); }
+}
+
+function commitEdit(input) {
+  if (!editing || !input) return;
+  const ed = editing;
+  const val = input.value;
+  editing = null; // clear first so the removal-triggered blur is a no-op
+  if (ed.type === 'price') {
+    const it = state.plan && state.plan.list.find((x) => x.id === ed.id);
+    if (it) {
+      const n = parseFloat(String(val).replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(n) && n >= 0) {
+        it.p = n;
+        it.estimated = false;
+        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10) });
+      }
+    }
+  } else if (ed.type === 'meal') {
+    const day = state.plan && state.plan.days[ed.idx];
+    if (day) day[ed.slot] = String(val).trim().slice(0, 80);
+  }
+  save(); render();
 }
 
 function bindEvents() {
@@ -649,6 +698,16 @@ function bindEvents() {
   });
   document.addEventListener('input', (e) => {
     if (e.target.id === 'in-tweak') { state.tweak = e.target.value; save(); }
+  });
+
+  // inline-edit commit (blur or Enter) / cancel (Escape)
+  document.addEventListener('focusout', (e) => {
+    if (e.target.classList && e.target.classList.contains('inline-edit')) commitEdit(e.target);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!(e.target.classList && e.target.classList.contains('inline-edit'))) return;
+    if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); editing = null; render(); }
   });
 
   document.querySelectorAll('.bottom-nav button').forEach((b) => {
@@ -673,7 +732,13 @@ function bindEvents() {
     e.preventDefault();
     const name = $('#in-pantry-name').value.trim();
     if (!name) return;
-    state.pantry.unshift({ id: uid(), name, qty: $('#in-pantry-qty').value.trim() });
+    const qty = $('#in-pantry-qty').value.trim();
+    const existing = state.pantry.find((p) => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (qty) existing.qty = qty; // update quantity instead of duplicating
+    } else {
+      state.pantry.unshift({ id: uid(), name, qty });
+    }
     $('#in-pantry-name').value = ''; $('#in-pantry-qty').value = '';
     save(); render();
   });
