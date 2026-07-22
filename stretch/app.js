@@ -400,9 +400,17 @@ async function handleDealsFile(file) {
   dealsDraft = null;
   renderDealsDraft();
   const isPdf = (file.type || '').includes('pdf') || /\.pdf$/i.test(file.name || '');
-  if (isPdf && file.size > 15 * 1024 * 1024) {
-    showErr('#err-deals', 'That PDF is too big (over 15MB). Try a shorter excerpt.');
-    return;
+  if (isPdf) {
+    // Direct API-key uploads go straight to Anthropic (~32MB request limit, so
+    // ~22MB of raw PDF once base64-encoded). The shared server route is capped
+    // by the host at ~6MB. A photo of the specials page always fits either way.
+    const maxPdf = state.apiKey ? 22 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxPdf) {
+      showErr('#err-deals', state.apiKey
+        ? '📸 That catalogue is large (over ~22MB). Snap a photo of just the specials page instead — it works just as well and is much smaller — or upload a shorter PDF.'
+        : '📸 That catalogue is too big for the shared server (max ~4MB). Snap a photo of the specials page instead (works great), or add your own API key under Connection settings to upload big PDFs.');
+      return;
+    }
   }
   try {
     btn.disabled = true;
