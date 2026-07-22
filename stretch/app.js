@@ -6,6 +6,7 @@ const STORAGE_KEY = 'stretch-rand-v2';
 const PROXY_PATH = '/.netlify/functions/claude-proxy';
 const MODEL = 'claude-opus-4-8'; // server admin config may override
 
+const STORES = ['Shoprite', 'Checkers', 'Pick n Pay', 'Boxer', 'Spar', 'USave', 'Makro', 'Woolworths', "Food Lover's"];
 const STAPLES = ['Maize meal', 'Rice', 'Brown bread', 'Eggs', 'Sunflower oil', 'Sugar', 'Dry beans', 'Tinned fish', 'Cabbage', 'Onions', 'Potatoes', 'Milk'];
 const CAT_ORDER = ['starch', 'protein', 'veg', 'dairy', 'other'];
 const CAT_LABEL = { starch: 'Starch', protein: 'Protein', veg: 'Veg', dairy: 'Dairy', other: 'Other' };
@@ -15,10 +16,11 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 let state = {
   settings: { budget: '', days: '7', adults: '2', kids: '0' },
   pantry: [],   // {id, name, qty}
-  prices: [],   // {id, item, price, store, date} — learned from price corrections, no UI
-  deals: [],    // {id, item, price, store}
+  prices: [],   // {id, item, price, store, date} — learned from in-store price corrections
+  deals: [],    // {id, item, key, qty, price, unitPrice, unitLabel, store}
   plan: null,   // {list:[{id,i,q,p,estimated,cat,store,checked}], pantryUsed, warnings, days, budget, madeAt}
   tweak: '',
+  lastStore: '',
   appToken: '',
   serverBase: '',
   apiKey: '',
@@ -26,7 +28,7 @@ let state = {
 };
 
 // transient (not saved)
-let dealsDraft = null; // [{id,name,qty,price,store,include}]
+let dealsDraft = null; // {store, items:[{id,name,key,qty,price,unitPrice,unitLabel,include}]}
 let activeTab = 'plan';
 let editing = null;    // {type:'price', id} | {type:'meal', idx, slot}
 
@@ -54,7 +56,6 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, 300);
 }
-// don't lose a just-made change when the app is closed or backgrounded
 window.addEventListener('pagehide', flushSave);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSave(); });
 
@@ -69,6 +70,7 @@ function esc(s) {
 }
 
 const fmtR = (n) => 'R' + (Math.round(Number(n) * 100) / 100).toFixed(2);
+const fmtR1 = (n) => 'R' + (Math.round(Number(n) * 100) / 100).toFixed(n < 10 ? 2 : 2);
 
 function showErr(id, msg) {
   const el = $(id);
@@ -101,7 +103,6 @@ function fileToBase64(file) {
   });
 }
 
-// Phone photos are huge; shrink before uploading to keep requests fast and cheap.
 function downscaleImage(file, maxEdge = 1568) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -125,16 +126,38 @@ function downscaleImage(file, maxEdge = 1568) {
   });
 }
 
+// Generic product key for cross-store matching, when the AI didn't supply one.
+function deriveKey(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\b\d+(\.\d+)?\s?(kg|g|ml|l|litre|liter|pack|pk|x|ea|s)\b/g, ' ')
+    .replace(/[^a-z ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ').slice(0, 3).join(' ');
+}
+
+// Comparable price per standard unit (per kg / per L / each), when size is known.
+function unitPriceOf(price, sizeValue, sizeUnit) {
+  const p = Number(price), sv = Number(sizeValue);
+  if (!p || !sv || sv <= 0 || !sizeUnit) return null;
+  const su = String(sizeUnit).toLowerCase();
+  if (su === 'kg') return { v: p / sv, label: '/kg' };
+  if (su === 'g') return { v: p / (sv / 1000), label: '/kg' };
+  if (su === 'l' || su === 'litre' || su === 'liter') return { v: p / sv, label: '/L' };
+  if (su === 'ml') return { v: p / (sv / 1000), label: '/L' };
+  if (su === 'ea' || su === 'each' || su === 'unit') return { v: p / sv, label: ' each' };
+  return null;
+}
+
 /* ================= working overlay ================= */
 
 function showOverlay(msg) {
-  const o = $('#overlay');
   $('#overlay-msg').textContent = msg || 'Working…';
-  o.classList.remove('hidden');
+  $('#overlay').classList.remove('hidden');
 }
-function hideOverlay() {
-  $('#overlay').classList.add('hidden');
-}
+function hideOverlay() { $('#overlay').classList.add('hidden'); }
 
 /* ================= AI calls ================= */
 
@@ -150,9 +173,8 @@ function proxyUrl() {
 
 async function callClaude({ system, userContent, maxTokens = 3000 }) {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new Error("You're offline. Connect to the internet to scan deals or build a plan — everything else keeps working.");
+    throw new Error("You're offline. Connect to the internet to read deals or build a plan — everything else keeps working.");
   }
-  // Serverless mode: a personal API key talks to the Anthropic API directly.
   const url = state.apiKey ? 'https://api.anthropic.com/v1/messages' : proxyUrl();
   const headers = { 'Content-Type': 'application/json' };
   if (state.apiKey) {
@@ -167,18 +189,11 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
   let res;
   try {
     res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: maxTokens,
-        system,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+      method: 'POST', headers,
+      body: JSON.stringify({ model: MODEL, max_tokens: maxTokens, system, messages: [{ role: 'user', content: userContent }] }),
     });
   } catch (e) {
     if (e instanceof TypeError) {
-      // network-level failure: offline, wrong server address, or the server refused this page's origin
       const hosted = /^https?:$/.test(location.protocol);
       if (state.apiKey) throw new Error("Couldn't reach the AI service. Check your internet connection and try again.");
       throw new Error(hosted && !state.serverBase
@@ -221,10 +236,50 @@ function planTotal() {
   if (!state.plan) return 0;
   return state.plan.list.reduce((s, it) => s + (Number(it.p) || 0), 0);
 }
-
 function basketTotal() {
   if (!state.plan) return 0;
   return state.plan.list.reduce((s, it) => s + (it.checked ? Number(it.p) || 0 : 0), 0);
+}
+
+// Distinct stores present across saved deals.
+function dealStores() {
+  return [...new Set(state.deals.map((d) => d.store).filter(Boolean))];
+}
+
+// Group deals by generic key; return comparison rows for keys sold at 2+ stores.
+function computeComparison() {
+  const groups = {};
+  for (const d of state.deals) {
+    const key = d.key || deriveKey(d.item);
+    if (!key) continue;
+    (groups[key] = groups[key] || []).push(d);
+  }
+  const rows = [];
+  for (const key of Object.keys(groups)) {
+    // best offer per store (cheapest by unit price if known, else raw price)
+    const perStore = {};
+    for (const d of groups[key]) {
+      const store = d.store || 'Unknown';
+      const cur = perStore[store];
+      const cmp = (d.unitPrice != null) ? d.unitPrice : d.price;
+      if (!cur || cmp < cur.cmp) perStore[store] = { store, price: d.price, qty: d.qty, unitPrice: d.unitPrice, unitLabel: d.unitLabel, name: d.item, cmp };
+    }
+    const offers = Object.values(perStore);
+    if (offers.length < 2) continue;
+    const allUnit = offers.every((o) => o.unitPrice != null);
+    offers.sort((a, b) => (allUnit ? a.unitPrice - b.unitPrice : a.price - b.price));
+    const best = offers[0], worst = offers[offers.length - 1];
+    const label = groups[key].map((d) => d.item).sort((a, b) => a.length - b.length)[0] || key;
+    let saving;
+    if (allUnit && worst.unitPrice > 0) {
+      saving = Math.round((1 - best.unitPrice / worst.unitPrice) * 100) + '% cheaper' + (best.unitLabel || '');
+    } else {
+      saving = 'Save ' + fmtR(worst.price - best.price);
+    }
+    rows.push({ key, label, offers, best, allUnit, saving });
+  }
+  rows.sort((a, b) => a.label.localeCompare(b.label));
+  return rows;
 }
 
 /* ================= plan generation ================= */
@@ -250,11 +305,17 @@ async function generatePlan() {
   }
   const tweak = (state.tweak || '').trim();
 
-  // latest learned price per item name
   const latest = {};
   [...state.prices].reverse().forEach((p) => { latest[p.item.toLowerCase()] = p; });
   const priceList = Object.values(latest).map((p) => `${p.item}: R${p.price} (${p.store})`).join('; ') || 'none known';
-  const dealList = state.deals.map((d) => `${d.item}: R${d.price} (${d.store})`).join('; ') || 'none';
+
+  // multi-store deal prices, grouped so the model can pick the cheapest store per item
+  const byKey = {};
+  for (const d of state.deals) {
+    const key = d.key || deriveKey(d.item) || d.item;
+    (byKey[key] = byKey[key] || []).push(`${d.store || '?'} R${d.price}${d.unitPrice != null ? ` (${fmtR(d.unitPrice)}${d.unitLabel})` : (d.qty ? ` (${d.qty})` : '')}`);
+  }
+  const dealList = Object.keys(byKey).map((k) => `${k}: ${byKey[k].join(' vs ')}`).join('; ') || 'none';
   const pantryList = state.pantry.map((p) => `${p.name} (${p.qty || 'qty unknown'})`).join('; ') || 'empty';
   const tweakLine = tweak ? ` Special request from the household (must be respected): ${tweak}.` : '';
 
@@ -262,16 +323,16 @@ async function generatePlan() {
     setBuildBusy(true, 'Building your shopping list…');
     showOverlay('Building your shopping list…');
 
-    const listSystem = 'You are an expert budget grocery planner for South African households, working with realistic current prices at Shoprite, Checkers, Pick n Pay, Boxer and Spar. Rules: '
+    const listSystem = 'You are an expert budget grocery planner for South African households, working with realistic current prices at Shoprite, Checkers, Pick n Pay, Boxer, Spar and USave. Rules: '
       + '1) The total cost of the list must stay under the budget with roughly a 5% safety margin. '
       + '2) If spend is under R100 per person per week, plan survival mode: lean on maize meal, rice, dry beans, eggs, tinned fish, cabbage, onions, potatoes and oil; no luxuries, snacks or convenience items. '
       + '3) Use pantry items on hand before buying anything — never buy what the household already has enough of. '
-      + '4) Save money: when a listed deal is the cheapest way to get an item, buy it at that deal price and store. Use known prices where given. For anything else use a conservative realistic estimate and set "estimated" true. '
+      + '4) SAVE THE MOST MONEY: the deals below list each item and the stores that stock it with prices. For every item, choose the CHEAPEST store that has it and set "store" to that store name and "p" to that price. Only when an item is not in the deals, use a conservative realistic estimate, set "estimated" true and leave "store" empty. '
       + '5) Size packs so bulk items get fully used across the days; include cooking basics (oil, salt, stock) only if not in the pantry. '
       + '6) If children are present include milk, eggs or soft starches for them. '
-      + 'Output ONLY compact JSON, no markdown, exact schema: {"list":[{"i":"item name","q":"pack size","p":price_number,"estimated":true_or_false,"cat":"starch"|"protein"|"veg"|"dairy"|"other","store":"store name or empty"}],"pantry_used":["item"],"warnings":["short warning"]}';
+      + 'Output ONLY compact JSON, no markdown, exact schema: {"list":[{"i":"item name","q":"pack size","p":price_number,"estimated":true_or_false,"cat":"starch"|"protein"|"veg"|"dairy"|"other","store":"cheapest store name or empty"}],"pantry_used":["item"],"warnings":["short warning"]}';
 
-    const listUser = `Budget: R${h.budget}. Days to cover: ${h.days}. Adults: ${h.adults}. Children: ${h.kids}. Pantry on hand: ${pantryList}. Known prices: ${priceList}. This week's deals: ${dealList}.${tweakLine}`;
+    const listUser = `Budget: R${h.budget}. Days to cover: ${h.days}. Adults: ${h.adults}. Children: ${h.kids}. Pantry on hand: ${pantryList}. Known prices: ${priceList}. Deals by store (choose the cheapest per item): ${dealList}.${tweakLine}`;
 
     const listData = parseJSONLoose(await callClaude({ system: listSystem, userContent: listUser, maxTokens: 3000 }));
     const list = (listData.list || []).map((it) => ({
@@ -320,11 +381,21 @@ async function generatePlan() {
   }
 }
 
-/* ================= deals upload (PDF or photo) ================= */
+/* ================= deals upload (per store) ================= */
+
+function currentStore() {
+  const sel = $('#in-store');
+  if (sel && sel.value === '__other') {
+    return ($('#in-store-custom').value || '').trim() || 'Other';
+  }
+  return sel ? sel.value : (state.lastStore || STORES[0]);
+}
 
 async function handleDealsFile(file) {
   if (!file) return;
   const btn = $('#btn-deals');
+  const store = currentStore();
+  state.lastStore = store; save();
   showErr('#err-deals', '');
   dealsDraft = null;
   renderDealsDraft();
@@ -336,7 +407,7 @@ async function handleDealsFile(file) {
   try {
     btn.disabled = true;
     btn.textContent = 'Reading deals…';
-    showOverlay('Reading the deals…');
+    showOverlay('Reading the ' + store + ' deals…');
     let contentBlock;
     if (isPdf) {
       contentBlock = { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: await fileToBase64(file) } };
@@ -345,49 +416,59 @@ async function handleDealsFile(file) {
       contentBlock = { type: 'image', source: { type: 'base64', media_type: mediaType, data } };
     }
     const text = await callClaude({
-      system: 'You read South African grocery specials: store catalogue PDFs, photos of leaflets, shelf labels or price boards. Extract only grocery/pantry items with clearly visible prices — staples, proteins, vegetables, dairy, tinned goods, bread, cooking basics. Skip non-food and vague entries. Note pack size in qty when visible. Keep at most the 25 items most useful for a tight food budget. Output ONLY compact JSON, no markdown, exact schema: {"items":[{"name":"","qty":"","price":0,"store":""}]}. Use empty strings when unclear.',
-      userContent: [
-        contentBlock,
-        { type: 'text', text: 'Extract the grocery deals with prices.' },
-      ],
-      maxTokens: 3000,
+      system: 'You read South African grocery specials (catalogue PDFs, leaflet photos, shelf labels). Extract only grocery/pantry items with clearly visible prices. For EACH item output: "name" (as printed), "key" (a short generic product name usable to match the same product across different stores, e.g. "maize meal", "eggs", "sunflower oil", "brown bread", "chicken portions"), "qty" (pack size as printed, e.g. "5kg", "18s", "2L"), "price" (number, rand), "size_value" (numeric size, e.g. 5 for 5kg, 2 for 2L, 18 for 18 eggs) and "size_unit" (one of kg, g, l, ml, ea). Skip non-food and vague entries. Keep at most the 30 items most useful for a tight food budget. Output ONLY compact JSON, no markdown, exact schema: {"items":[{"name":"","key":"","qty":"","price":0,"size_value":0,"size_unit":""}]}.',
+      userContent: [contentBlock, { type: 'text', text: 'Extract the grocery deals with prices.' }],
+      maxTokens: 3500,
     });
     const parsed = parseJSONLoose(text);
-    dealsDraft = (parsed.items || []).map((it) => ({
-      id: uid(),
-      name: String(it.name || '').slice(0, 80),
-      qty: String(it.qty || '').slice(0, 40),
-      price: Number(it.price) || 0,
-      store: String(it.store || '').slice(0, 40),
-      include: true,
-    })).filter((it) => it.name);
-    if (!dealsDraft.length) {
-      dealsDraft = null;
+    const items = (parsed.items || []).map((it) => {
+      const price = Number(it.price) || 0;
+      const up = unitPriceOf(price, it.size_value, it.size_unit);
+      return {
+        id: uid(),
+        name: String(it.name || '').slice(0, 80),
+        key: (String(it.key || '') || deriveKey(it.name)).toLowerCase().slice(0, 40),
+        qty: String(it.qty || '').slice(0, 40),
+        price,
+        unitPrice: up ? Math.round(up.v * 100) / 100 : null,
+        unitLabel: up ? up.label : '',
+        include: true,
+      };
+    }).filter((it) => it.name && it.price > 0);
+    if (!items.length) {
       showErr('#err-deals', 'No deals with prices found in there. Try a clearer photo or a different page.');
+    } else {
+      dealsDraft = { store, items };
     }
   } catch (e) {
     showErr('#err-deals', e.message || "Couldn't read that file. Try a clearer photo or a different PDF.");
   } finally {
     hideOverlay();
     btn.disabled = false;
-    btn.textContent = '⬆️ Upload deals';
+    btn.textContent = '⬆️ Upload for this store';
     renderDealsDraft();
   }
 }
 
 function confirmDeals() {
   if (!dealsDraft) return;
-  dealsDraft.filter((i) => i.include && i.name.trim()).forEach((i) => {
+  const store = dealsDraft.store;
+  dealsDraft.items.filter((i) => i.include && i.name.trim()).forEach((i) => {
     state.deals.unshift({
       id: uid(),
       item: i.name + (i.qty ? ` (${i.qty})` : ''),
+      key: i.key,
+      qty: i.qty,
       price: i.price,
-      store: i.store || 'Special',
+      unitPrice: i.unitPrice,
+      unitLabel: i.unitLabel,
+      store,
     });
   });
   dealsDraft = null;
   save();
   render();
+  switchTab('deals');
 }
 
 /* ================= rendering ================= */
@@ -408,6 +489,7 @@ function render() {
   renderList('#list-pantry', state.pantry, (p) =>
     `<span class="grow">${esc(p.name)} <span class="dim">${esc(p.qty || '')}</span></span>`,
     'Empty — tap the buttons above or type what you have.');
+  renderCompare();
   renderDealsList();
   renderPlanResult();
   const main = $('#btn-build');
@@ -437,44 +519,55 @@ function renderChips() {
 
 function renderList(sel, items, rowHtml, emptyText) {
   const el = $(sel);
-  if (!items.length) {
-    el.innerHTML = `<p class="hint">${esc(emptyText)}</p>`;
-    return;
-  }
+  if (!items.length) { el.innerHTML = `<p class="hint">${esc(emptyText)}</p>`; return; }
   const kind = sel.replace('#list-', '');
   el.innerHTML = items.map((it) =>
     `<div class="item-row">${rowHtml(it)}<button class="x" data-action="remove" data-kind="${kind}" data-id="${it.id}" aria-label="Remove">✕</button></div>`
   ).join('');
 }
 
-function renderDealsList() {
-  renderList('#list-deals', state.deals, (d) =>
-    `<span class="grow">${esc(d.item)} <span class="dim">· ${esc(d.store)}</span></span><span class="money">${fmtR(d.price)}</span>`,
-    'No deals saved yet — upload this week\'s specials above.');
-  if (state.deals.length) {
-    $('#list-deals').insertAdjacentHTML('beforeend',
-      '<button class="btn small danger-ghost" data-action="clear-deals" style="margin-top:10px">Clear old deals</button>');
-  }
+function renderCompare() {
+  const card = $('#compare-card');
+  const rows = computeComparison();
+  if (!rows.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  $('#compare-list').innerHTML = rows.map((r) => `
+    <div class="compare">
+      <div class="compare-head"><span class="grow">${esc(r.label)}</span><span class="save">${esc(r.saving)}</span></div>
+      ${r.offers.map((o, i) => `
+        <div class="offer ${i === 0 ? 'best' : ''}">
+          <span class="grow">${i === 0 ? '✅ ' : ''}${esc(o.store)}</span>
+          ${o.unitPrice != null ? `<span class="dim">${fmtR(o.unitPrice)}${esc(o.unitLabel)}</span>` : ''}
+          <span class="money">${fmtR(o.price)}${o.qty ? `<span class="dim"> ${esc(o.qty)}</span>` : ''}</span>
+        </div>`).join('')}
+    </div>`).join('');
 }
 
-function renderDealsDraft() {
-  const el = $('#draft-deals');
-  if (!dealsDraft) { el.innerHTML = ''; return; }
-  el.innerHTML = `
-    <div class="draft">
-      <div class="draft-head">Found ${dealsDraft.length} deal${dealsDraft.length === 1 ? '' : 's'} — untick anything that's wrong</div>
-      <div class="scroll">${dealsDraft.map((it) => `
-        <label class="check">
-          <input type="checkbox" data-action="toggle-draft" data-id="${it.id}" ${it.include ? 'checked' : ''}>
-          <span class="grow">${esc(it.name)}${it.qty ? ` <span class="dim">(${esc(it.qty)})</span>` : ''} <span class="dim">${esc(it.store)}</span></span>
-          <span class="money">${fmtR(it.price)}</span>
-        </label>`).join('')}
+function renderDealsList() {
+  const card = $('#catalogues-card');
+  if (!state.deals.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+
+  const stores = dealStores();
+  $('#store-summary').textContent = `${state.deals.length} deal${state.deals.length === 1 ? '' : 's'} across ${stores.length} store${stores.length === 1 ? '' : 's'}.`;
+
+  const byStore = {};
+  state.deals.forEach((d) => { (byStore[d.store || 'Unknown'] = byStore[d.store || 'Unknown'] || []).push(d); });
+  $('#list-deals').innerHTML = Object.keys(byStore).sort().map((store) => {
+    const items = byStore[store];
+    return `<div class="store-group">
+      <div class="store-head">
+        <span>${esc(store)} <span class="dim">· ${items.length}</span></span>
+        <button class="btn small danger-ghost" data-action="clear-store" data-store="${esc(store)}">Clear</button>
       </div>
-      <div class="row">
-        <button class="btn small" data-action="confirm-deals">Save these deals</button>
-        <button class="btn small danger-ghost" data-action="discard-deals">Discard</button>
-      </div>
+      ${items.map((d) => `<div class="item-row">
+        <span class="grow">${esc(d.item)}</span>
+        ${d.unitPrice != null ? `<span class="dim">${fmtR(d.unitPrice)}${esc(d.unitLabel)}</span>` : ''}
+        <span class="money">${fmtR(d.price)}</span>
+        <button class="x" data-action="remove" data-kind="deals" data-id="${d.id}" aria-label="Remove">✕</button>
+      </div>`).join('')}
     </div>`;
+  }).join('');
 }
 
 function renderPlanResult() {
@@ -497,6 +590,17 @@ function renderPlanResult() {
 
   if (p.warnings.length) {
     html += `<div class="card warnings">${p.warnings.map((w) => `<p>${esc(w)}</p>`).join('')}</div>`;
+  }
+
+  // per-store shopping run
+  const byStore = {};
+  p.list.forEach((it) => { const s = it.store || 'Any store'; byStore[s] = (byStore[s] || 0) + (Number(it.p) || 0); });
+  const storeKeys = Object.keys(byStore);
+  if (storeKeys.length > 1 || (storeKeys.length === 1 && storeKeys[0] !== 'Any store')) {
+    html += `<div class="card"><h2>Your shopping run</h2>` +
+      storeKeys.sort((a, b) => byStore[b] - byStore[a]).map((s) =>
+        `<div class="run-row"><span class="grow">${esc(s)}</span><span class="money">${fmtR(byStore[s])}</span></div>`).join('') +
+      `<p class="hint">Each item is priced at its cheapest store from your deals.</p></div>`;
   }
 
   html += `
@@ -576,11 +680,36 @@ function copyList() {
     const btn = document.querySelector('[data-action="copy-list"]');
     if (btn) { btn.textContent = 'Copied ✓'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
   };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(out).then(done, done);
-  } else {
-    done();
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out).then(done, done);
+  else done();
+}
+
+/* ================= inline editing ================= */
+
+function focusEditing() {
+  const input = document.querySelector('.inline-edit');
+  if (input) { input.focus(); if (input.select) input.select(); }
+}
+
+function commitEdit(input) {
+  if (!editing || !input) return;
+  const ed = editing;
+  const val = input.value;
+  editing = null;
+  if (ed.type === 'price') {
+    const it = state.plan && state.plan.list.find((x) => x.id === ed.id);
+    if (it) {
+      const n = parseFloat(String(val).replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(n) && n >= 0) {
+        it.p = n; it.estimated = false;
+        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10) });
+      }
+    }
+  } else if (ed.type === 'meal') {
+    const day = state.plan && state.plan.days[ed.idx];
+    if (day) day[ed.slot] = String(val).trim().slice(0, 80);
   }
+  save(); render();
 }
 
 /* ================= events ================= */
@@ -597,13 +726,18 @@ function onAction(e) {
     case 'pick-deals': $('#file-deals').click(); break;
     case 'confirm-deals': confirmDeals(); break;
     case 'discard-deals': dealsDraft = null; renderDealsDraft(); break;
-    case 'clear-deals':
+
+    case 'clear-store':
+      state.deals = state.deals.filter((d) => (d.store || 'Unknown') !== el.dataset.store);
+      save(); render();
+      break;
+    case 'clear-all-deals':
       state.deals = [];
       save(); render();
       break;
 
     case 'toggle-draft': {
-      const it = dealsDraft && dealsDraft.find((x) => x.id === id);
+      const it = dealsDraft && dealsDraft.items.find((x) => x.id === id);
       if (it) it.include = el.checked;
       break;
     }
@@ -619,10 +753,7 @@ function onAction(e) {
 
     case 'remove': {
       const key = { pantry: 'pantry', deals: 'deals' }[el.dataset.kind];
-      if (key) {
-        state[key] = state[key].filter((x) => x.id !== id);
-        save(); render();
-      }
+      if (key) { state[key] = state[key].filter((x) => x.id !== id); save(); render(); }
       break;
     }
 
@@ -632,28 +763,20 @@ function onAction(e) {
       break;
     }
 
-    case 'edit-price': {
-      if (!(state.plan && state.plan.list.some((x) => x.id === id))) break;
-      editing = { type: 'price', id };
-      render();
-      focusEditing();
+    case 'edit-price':
+      if (state.plan && state.plan.list.some((x) => x.id === id)) { editing = { type: 'price', id }; render(); focusEditing(); }
       break;
-    }
 
-    case 'remove-item': {
+    case 'remove-item':
       editing = null;
       state.plan.list = state.plan.list.filter((x) => x.id !== id);
       save(); render();
       break;
-    }
 
     case 'edit-meal': {
       const idx = parseInt(el.dataset.idx, 10);
       const slot = el.dataset.slot;
-      if (!(state.plan && state.plan.days[idx])) break;
-      editing = { type: 'meal', idx, slot };
-      render();
-      focusEditing();
+      if (state.plan && state.plan.days[idx]) { editing = { type: 'meal', idx, slot }; render(); focusEditing(); }
       break;
     }
 
@@ -661,38 +784,28 @@ function onAction(e) {
   }
 }
 
-function focusEditing() {
-  const input = document.querySelector('.inline-edit');
-  if (input) { input.focus(); if (input.select) input.select(); }
-}
-
-function commitEdit(input) {
-  if (!editing || !input) return;
-  const ed = editing;
-  const val = input.value;
-  editing = null; // clear first so the removal-triggered blur is a no-op
-  if (ed.type === 'price') {
-    const it = state.plan && state.plan.list.find((x) => x.id === ed.id);
-    if (it) {
-      const n = parseFloat(String(val).replace(',', '.').replace(/[^\d.]/g, ''));
-      if (!isNaN(n) && n >= 0) {
-        it.p = n;
-        it.estimated = false;
-        state.prices.unshift({ id: uid(), item: it.i, price: n, store: it.store || 'In store', date: new Date().toISOString().slice(0, 10) });
-      }
-    }
-  } else if (ed.type === 'meal') {
-    const day = state.plan && state.plan.days[ed.idx];
-    if (day) day[ed.slot] = String(val).trim().slice(0, 80);
-  }
-  save(); render();
+function renderDealsDraft() {
+  const el = $('#draft-deals');
+  if (!dealsDraft) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="draft">
+      <div class="draft-head">${esc(dealsDraft.store)}: found ${dealsDraft.items.length} deal${dealsDraft.items.length === 1 ? '' : 's'} — untick anything that's wrong</div>
+      <div class="scroll">${dealsDraft.items.map((it) => `
+        <label class="check">
+          <input type="checkbox" data-action="toggle-draft" data-id="${it.id}" ${it.include ? 'checked' : ''}>
+          <span class="grow">${esc(it.name)}${it.qty ? ` <span class="dim">(${esc(it.qty)})</span>` : ''}${it.unitPrice != null ? ` <span class="dim">${fmtR(it.unitPrice)}${esc(it.unitLabel)}</span>` : ''}</span>
+          <span class="money">${fmtR(it.price)}</span>
+        </label>`).join('')}
+      </div>
+      <div class="row">
+        <button class="btn small" data-action="confirm-deals">Save ${esc(dealsDraft.store)} deals</button>
+        <button class="btn small danger-ghost" data-action="discard-deals">Discard</button>
+      </div>
+    </div>`;
 }
 
 function bindEvents() {
-  document.addEventListener('click', (e) => {
-    // the price tap and remove ✕ sit inside the tickable row — handle innermost only
-    onAction(e);
-  });
+  document.addEventListener('click', onAction);
   document.addEventListener('change', (e) => {
     if (e.target.matches('[data-action="toggle-draft"]')) onAction(e);
   });
@@ -700,7 +813,6 @@ function bindEvents() {
     if (e.target.id === 'in-tweak') { state.tweak = e.target.value; save(); }
   });
 
-  // inline-edit commit (blur or Enter) / cancel (Escape)
   document.addEventListener('focusout', (e) => {
     if (e.target.classList && e.target.classList.contains('inline-edit')) commitEdit(e.target);
   });
@@ -726,6 +838,13 @@ function bindEvents() {
   $('#in-server').addEventListener('input', (e) => { state.serverBase = e.target.value.trim(); save(); });
   $('#in-apikey').addEventListener('input', (e) => { state.apiKey = e.target.value.trim(); save(); });
 
+  $('#in-store').addEventListener('change', (e) => {
+    const custom = e.target.value === '__other';
+    $('#in-store-custom').classList.toggle('hidden', !custom);
+    if (!custom) { state.lastStore = e.target.value; save(); }
+  });
+  $('#in-store-custom').addEventListener('input', (e) => { state.lastStore = e.target.value.trim(); save(); });
+
   $('#file-deals').addEventListener('change', (e) => { handleDealsFile(e.target.files[0]); e.target.value = ''; });
 
   $('#form-pantry').addEventListener('submit', (e) => {
@@ -734,11 +853,8 @@ function bindEvents() {
     if (!name) return;
     const qty = $('#in-pantry-qty').value.trim();
     const existing = state.pantry.find((p) => p.name.toLowerCase() === name.toLowerCase());
-    if (existing) {
-      if (qty) existing.qty = qty; // update quantity instead of duplicating
-    } else {
-      state.pantry.unshift({ id: uid(), name, qty });
-    }
+    if (existing) { if (qty) existing.qty = qty; }
+    else state.pantry.unshift({ id: uid(), name, qty });
     $('#in-pantry-name').value = ''; $('#in-pantry-qty').value = '';
     save(); render();
   });
@@ -748,11 +864,15 @@ function bindEvents() {
 
 function init() {
   load();
-  save(); // persist generated userId
+  save();
 
-  document.querySelectorAll('[data-setting]').forEach((input) => {
-    input.value = state.settings[input.dataset.setting] || '';
-  });
+  // store dropdown
+  const opts = STORES.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join('') + '<option value="__other">Other store…</option>';
+  const sel = $('#in-store');
+  sel.innerHTML = opts;
+  if (state.lastStore && STORES.includes(state.lastStore)) sel.value = state.lastStore;
+
+  document.querySelectorAll('[data-setting]').forEach((input) => { input.value = state.settings[input.dataset.setting] || ''; });
   $('#in-token').value = state.appToken || '';
   $('#in-server').value = state.serverBase || '';
   $('#in-apikey').value = state.apiKey || '';
