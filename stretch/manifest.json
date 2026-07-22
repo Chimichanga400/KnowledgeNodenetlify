@@ -1,12 +1,12 @@
 {
-  "name": "Stretch the Rand",
-  "short_name": "Stretch",
-  "description": "Plan meals, track prices and save on grocery deals on a real South African budget.",
+  "name": "Larder",
+  "short_name": "Larder",
+  "description": "Compare stores and plan meals on a real South African budget.",
   "start_url": "/stretch/",
   "scope": "/stretch/",
   "display": "standalone",
-  "background_color": "#211E1A",
-  "theme_color": "#211E1A",
+  "background_color": "#F4F1EA",
+  "theme_color": "#F4F1EA",
   "orientation": "portrait",
   "icons": [
     {
