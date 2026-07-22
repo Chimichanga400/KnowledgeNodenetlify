@@ -474,6 +474,17 @@ select { appearance: none; -webkit-appearance: none; }
 .bottom-nav button.active { color: var(--accent-bright); }
 .bottom-nav button.active .ico { filter: none; transform: translateY(-1px); }
 
+/* ---- success note (deals saved/merged) ---- */
+.note-ok {
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  padding: 9px 12px;
+  margin-top: 10px;
+}
+
   </style>
 </head>
 <body>
@@ -512,6 +523,7 @@ select { appearance: none; -webkit-appearance: none; }
         <input id="file-deals" type="file" accept="application/pdf,image/*" class="hidden" />
         <button id="btn-deals" class="btn-big" data-action="pick-deals">⬆️ Upload for this store</button>
         <p id="err-deals" class="err hidden"></p>
+        <p id="deals-note" class="note-ok hidden"></p>
         <div id="draft-deals"></div>
       </div>
 
@@ -656,7 +668,6 @@ function esc(s) {
 }
 
 const fmtR = (n) => 'R' + (Math.round(Number(n) * 100) / 100).toFixed(2);
-const fmtR1 = (n) => 'R' + (Math.round(Number(n) * 100) / 100).toFixed(n < 10 ? 2 : 2);
 
 function showErr(id, msg) {
   const el = $(id);
@@ -724,6 +735,11 @@ function deriveKey(name) {
     .split(' ').slice(0, 3).join(' ');
 }
 
+// Signature identifying "the same product at the same store" for de-duplication.
+function dealSig(store, key, qty) {
+  return (store || '').toLowerCase().trim() + '|' + (key || '') + '|' + (qty || '').toLowerCase().replace(/\s+/g, '');
+}
+
 // Comparable price per standard unit (per kg / per L / each), when size is known.
 function unitPriceOf(price, sizeValue, sizeUnit) {
   const p = Number(price), sv = Number(sizeValue);
@@ -744,6 +760,16 @@ function showOverlay(msg) {
   $('#overlay').classList.remove('hidden');
 }
 function hideOverlay() { $('#overlay').classList.add('hidden'); }
+
+let noteTimer = null;
+function flashNote(msg) {
+  const el = $('#deals-note');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  clearTimeout(noteTimer);
+  noteTimer = setTimeout(() => el.classList.add('hidden'), 4500);
+}
 
 /* ================= AI calls ================= */
 
@@ -1047,22 +1073,32 @@ async function handleDealsFile(file) {
 function confirmDeals() {
   if (!dealsDraft) return;
   const store = dealsDraft.store;
+  let added = 0, updated = 0;
   dealsDraft.items.filter((i) => i.include && i.name.trim()).forEach((i) => {
-    state.deals.unshift({
-      id: uid(),
-      item: i.name + (i.qty ? ` (${i.qty})` : ''),
-      key: i.key,
-      qty: i.qty,
-      price: i.price,
-      unitPrice: i.unitPrice,
-      unitLabel: i.unitLabel,
-      store,
-    });
+    const key = i.key || deriveKey(i.name);
+    const label = i.name + (i.qty ? ` (${i.qty})` : '');
+    const sig = dealSig(store, key, i.qty);
+    // Same product already saved for this store? Stack pamphlets, but merge
+    // a repeated item — keep the cheaper price so comparisons stay honest.
+    const existing = state.deals.find((d) => dealSig(d.store, d.key || deriveKey(d.item), d.qty) === sig);
+    if (existing) {
+      if (i.price < (Number(existing.price) || Infinity)) {
+        existing.price = i.price;
+        existing.unitPrice = i.unitPrice;
+        existing.unitLabel = i.unitLabel;
+        existing.item = label;
+      }
+      updated++;
+    } else {
+      state.deals.unshift({ id: uid(), item: label, key, qty: i.qty, price: i.price, unitPrice: i.unitPrice, unitLabel: i.unitLabel, store });
+      added++;
+    }
   });
   dealsDraft = null;
   save();
   render();
   switchTab('deals');
+  flashNote(`Saved to ${store}: ${added} new${updated ? `, ${updated} merged (kept the cheaper price)` : ''}.`);
 }
 
 /* ================= rendering ================= */
@@ -1154,12 +1190,17 @@ function renderDealsList() {
         <span>${esc(store)} <span class="dim">· ${items.length}</span></span>
         <button class="btn small danger-ghost" data-action="clear-store" data-store="${esc(store)}">Clear</button>
       </div>
-      ${items.map((d) => `<div class="item-row">
+      ${items.map((d) => {
+        const priceCell = (editing && editing.type === 'deal-price' && editing.id === d.id)
+          ? `<input class="inline-edit price-edit" type="number" inputmode="decimal" step="0.01" min="0" value="${d.price}" data-commit="deal-price" data-id="${d.id}">`
+          : `<span class="money" data-action="edit-deal-price" data-id="${d.id}">${fmtR(d.price)}</span>`;
+        return `<div class="item-row">
         <span class="grow">${esc(d.item)}</span>
         ${d.unitPrice != null ? `<span class="dim">${fmtR(d.unitPrice)}${esc(d.unitLabel)}</span>` : ''}
-        <span class="money">${fmtR(d.price)}</span>
+        ${priceCell}
         <button class="x" data-action="remove" data-kind="deals" data-id="${d.id}" aria-label="Remove">✕</button>
-      </div>`).join('')}
+      </div>`;
+      }).join('')}
     </div>`;
   }).join('');
 }
@@ -1302,6 +1343,18 @@ function commitEdit(input) {
   } else if (ed.type === 'meal') {
     const day = state.plan && state.plan.days[ed.idx];
     if (day) day[ed.slot] = String(val).trim().slice(0, 80);
+  } else if (ed.type === 'deal-price') {
+    const d = state.deals.find((x) => x.id === ed.id);
+    if (d) {
+      const n = parseFloat(String(val).replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(n) && n >= 0) {
+        // unit price scales with price (same pack size), so keep it in sync
+        if (d.unitPrice != null && Number(d.price) > 0) {
+          d.unitPrice = Math.round(d.unitPrice * (n / Number(d.price)) * 100) / 100;
+        }
+        d.price = n;
+      }
+    }
   }
   save(); render();
 }
@@ -1359,6 +1412,10 @@ function onAction(e) {
 
     case 'edit-price':
       if (state.plan && state.plan.list.some((x) => x.id === id)) { editing = { type: 'price', id }; render(); focusEditing(); }
+      break;
+
+    case 'edit-deal-price':
+      if (state.deals.some((x) => x.id === id)) { editing = { type: 'deal-price', id }; render(); focusEditing(); }
       break;
 
     case 'remove-item':

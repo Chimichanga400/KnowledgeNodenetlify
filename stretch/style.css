@@ -459,3 +459,14 @@ select { appearance: none; -webkit-appearance: none; }
 .bottom-nav button:hover { color: var(--ink-dim); }
 .bottom-nav button.active { color: var(--accent-bright); }
 .bottom-nav button.active .ico { filter: none; transform: translateY(-1px); }
+
+/* ---- success note (deals saved/merged) ---- */
+.note-ok {
+  color: var(--accent-bright);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  font-size: 0.85rem;
+  padding: 9px 12px;
+  margin-top: 10px;
+}
