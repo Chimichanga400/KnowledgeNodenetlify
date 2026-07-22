@@ -470,3 +470,22 @@ select { appearance: none; -webkit-appearance: none; }
   padding: 9px 12px;
   margin-top: 10px;
 }
+
+/* ---- monthly progress ---- */
+.month-figure {
+  font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; color: var(--accent-bright);
+  margin: 8px 0 2px;
+}
+.month-figure span { font-size: 0.82rem; font-weight: 500; color: var(--ink-dim); letter-spacing: 0; }
+.month-figure.neg { color: var(--danger); }
+.run-row .qty { color: var(--ink-faint); font-size: 0.78rem; }
+.run-row .money[data-action] { padding: 4px 6px; border-radius: 8px; cursor: pointer; transition: background 0.12s ease; }
+.run-row .money[data-action]:hover { background: var(--fill-2); }
+.run-row .x {
+  background: none; border: none; color: var(--ink-faint);
+  font-size: 1rem; padding: 4px 6px; cursor: pointer; line-height: 1; border-radius: 8px;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.run-row .x:hover { color: var(--danger); background: var(--danger-soft); }
+#month-progress .btn.small { margin-top: 12px; }

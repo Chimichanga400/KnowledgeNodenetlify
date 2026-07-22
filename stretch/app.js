@@ -14,7 +14,8 @@ const CAT_LABEL = { starch: 'Starch', protein: 'Protein', veg: 'Veg', dairy: 'Da
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 let state = {
-  settings: { budget: '', days: '7', adults: '2', kids: '0' },
+  settings: { budget: '', weeks: '4', adults: '2', kids: '0' },
+  weeks: [],    // logged weeks: {id, spent, date} — draws down the monthly budget
   pantry: [],   // {id, name, qty}
   prices: [],   // {id, item, price, store, date} — learned from in-store price corrections
   deals: [],    // {id, item, key, qty, price, unitPrice, unitLabel, store}
@@ -40,9 +41,11 @@ function load() {
     if (raw) {
       const d = JSON.parse(raw);
       state = Object.assign(state, d);
-      state.settings = Object.assign({ budget: '', days: '7', adults: '2', kids: '0' }, d.settings);
+      state.settings = Object.assign({ budget: '', weeks: '4', adults: '2', kids: '0' }, d.settings);
     }
   } catch (e) { /* corrupted or unavailable — start fresh */ }
+  if (!Array.isArray(state.weeks)) state.weeks = [];
+  if (!state.settings.weeks) state.settings.weeks = '4';
   if (!state.userId) state.userId = 'web-' + uid() + uid();
 }
 
@@ -237,13 +240,24 @@ async function callClaude({ system, userContent, maxTokens = 3000 }) {
 /* ================= derived values ================= */
 
 function household() {
-  const budget = parseFloat(state.settings.budget) || 0;
-  const days = parseInt(state.settings.days, 10) || 0;
+  const monthly = parseFloat(state.settings.budget) || 0;
+  const weeksTotal = Math.max(1, parseInt(state.settings.weeks, 10) || 4);
   const adults = parseInt(state.settings.adults, 10) || 0;
   const kids = parseInt(state.settings.kids, 10) || 0;
   const heads = adults + kids;
-  const perPersonWeek = heads > 0 && days > 0 ? budget / heads / (days / 7) : 0;
-  return { budget, days, adults, kids, heads, perPersonWeek, complete: budget > 0 && days > 0 && heads > 0 };
+  const weeksDone = (state.weeks || []).length;
+  const spent = (state.weeks || []).reduce((s, w) => s + (Number(w.spent) || 0), 0);
+  const remaining = monthly - spent;
+  const weeksRemaining = Math.max(1, weeksTotal - weeksDone);
+  const weekBudget = remaining > 0 ? remaining / weeksRemaining : 0;
+  const perPersonWeek = heads > 0 ? weekBudget / heads : 0;
+  // `budget`/`days` keep the weekly meanings the planner already uses.
+  return {
+    monthly, weeksTotal, weeksDone, spent, remaining, weeksRemaining, weekBudget,
+    adults, kids, heads, perPersonWeek,
+    budget: weekBudget, days: 7,
+    complete: monthly > 0 && heads > 0,
+  };
 }
 
 function planTotal() {
@@ -305,7 +319,7 @@ function setBuildBusy(busy, text) {
   });
   if (!busy) {
     const main = $('#btn-build');
-    if (main) main.textContent = state.plan ? 'Rebuild my plan' : 'Build my plan';
+    if (main) main.textContent = state.plan ? 'Rebuild this week' : "Build this week's plan";
   }
 }
 
@@ -313,7 +327,12 @@ async function generatePlan() {
   const h = household();
   showErr('#err-build', '');
   if (!h.complete) {
-    showErr('#err-build', 'Fill in your budget, days and household size first.');
+    showErr('#err-build', 'Fill in your monthly budget and household size first.');
+    switchTab('plan');
+    return;
+  }
+  if (h.weekBudget <= 0) {
+    showErr('#err-build', "No budget left this month — log a smaller amount, raise the monthly budget, or start a new month below.");
     switchTab('plan');
     return;
   }
@@ -517,6 +536,7 @@ function switchTab(tab) {
 
 function render() {
   renderGauge();
+  renderMonthProgress();
   renderChips();
   renderList('#list-pantry', state.pantry, (p) =>
     `<span class="grow">${esc(p.name)} <span class="dim">${esc(p.qty || '')}</span></span>`,
@@ -525,7 +545,7 @@ function render() {
   renderDealsList();
   renderPlanResult();
   const main = $('#btn-build');
-  if (main && !main.disabled) main.textContent = state.plan ? 'Rebuild my plan' : 'Build my plan';
+  if (main && !main.disabled) main.textContent = state.plan ? 'Rebuild this week' : "Build this week's plan";
 }
 
 function renderGauge() {
@@ -540,6 +560,39 @@ function renderGauge() {
     (tight
       ? '<span class="mode">Tight budget — the plan will stick to filling staples.</span>'
       : '<span class="mode">Workable — there\'s room for some variety.</span>');
+}
+
+function renderMonthProgress() {
+  const el = $('#month-progress');
+  const h = household();
+  if (!(h.monthly > 0)) { el.innerHTML = ''; return; }
+  const pct = Math.min(100, Math.max(0, (h.spent / h.monthly) * 100));
+  const over = h.remaining < 0;
+  let html = `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:baseline">
+      <h2 style="margin:0">This month</h2>
+      <span style="color:var(--ink-faint);font-size:0.8rem">Week ${Math.min(h.weeksDone + 1, h.weeksTotal)} of ${h.weeksTotal}</span>
+    </div>
+    <div class="month-figure ${over ? 'neg' : ''}">${fmtR(h.remaining)} <span>left of ${fmtR(h.monthly)}</span></div>
+    <div class="basket-bar"><div style="width:${pct}%"></div></div>`;
+  if (h.weeksDone) {
+    html += state.weeks.map((w, i) => {
+      const cell = (editing && editing.type === 'week-spent' && editing.id === w.id)
+        ? `<input class="inline-edit price-edit" type="number" inputmode="decimal" step="0.01" min="0" value="${w.spent}" data-commit="week-spent" data-id="${w.id}">`
+        : `<span class="money" data-action="edit-week" data-id="${w.id}">${fmtR(w.spent)}</span>`;
+      return `<div class="run-row">
+        <span class="grow">Week ${i + 1} <span class="qty">${esc(w.date || '')}</span></span>
+        ${cell}
+        <button class="x" data-action="remove-week" data-id="${w.id}" aria-label="Undo week">✕</button>
+      </div>`;
+    }).join('');
+  }
+  html += over
+    ? `<p class="hint" style="color:var(--danger)">You're over your monthly budget by ${fmtR(-h.remaining)}. Start a new month or raise the budget.</p>`
+    : `<p class="hint">About <strong style="color:var(--accent-bright)">${fmtR(h.weekBudget)}</strong> to spend for each of the next ${h.weeksRemaining} week${h.weeksRemaining === 1 ? '' : 's'}.</p>`;
+  if (h.weeksDone) html += `<button class="btn small danger-ghost" data-action="new-month">Start a new month</button>`;
+  html += `</div>`;
+  el.innerHTML = html;
 }
 
 function renderChips() {
@@ -620,7 +673,7 @@ function renderPlanResult() {
     <div class="card balance">
       <div class="label">Left over if you buy everything</div>
       <div class="amount ${left < 0 ? 'neg' : ''}">${fmtR(left)}</div>
-      <div class="sub">List ${fmtR(total)} of ${fmtR(p.budget)} budget</div>
+      <div class="sub">List ${fmtR(total)} of ${fmtR(p.budget)} this week</div>
       <div class="basket-bar"><div style="width:${pct}%"></div></div>
       <div class="sub">In basket: ${fmtR(basket)}</div>
     </div>`;
@@ -696,6 +749,13 @@ function renderPlanResult() {
       <button class="btn-big" data-action="build">Apply &amp; rebuild plan</button>
     </div>`;
 
+  html += `
+    <div class="card">
+      <h2>Done shopping this week?</h2>
+      <p class="hint">Log what you spent to draw it down from your monthly budget and plan the next week.</p>
+      <button class="btn-big" data-action="log-week">Log this week: ${fmtR(total)} spent</button>
+    </div>`;
+
   el.innerHTML = html;
 }
 
@@ -756,6 +816,12 @@ function commitEdit(input) {
         }
         d.price = n;
       }
+    }
+  } else if (ed.type === 'week-spent') {
+    const w = state.weeks.find((x) => x.id === ed.id);
+    if (w) {
+      const n = parseFloat(String(val).replace(',', '.').replace(/[^\d.]/g, ''));
+      if (!isNaN(n) && n >= 0) w.spent = n;
     }
   }
   save(); render();
@@ -834,6 +900,34 @@ function onAction(e) {
     }
 
     case 'copy-list': copyList(); break;
+
+    case 'log-week': {
+      if (!state.plan) break;
+      state.weeks.push({ id: uid(), spent: Math.round(planTotal() * 100) / 100, date: new Date().toISOString().slice(0, 10) });
+      state.plan = null;
+      editing = null;
+      state.tweak = '';
+      save(); render();
+      switchTab('plan');
+      window.scrollTo(0, 0);
+      break;
+    }
+
+    case 'edit-week':
+      if (state.weeks.some((w) => w.id === id)) { editing = { type: 'week-spent', id }; render(); focusEditing(); }
+      break;
+
+    case 'remove-week':
+      editing = null;
+      state.weeks = state.weeks.filter((w) => w.id !== id);
+      save(); render();
+      break;
+
+    case 'new-month':
+      state.weeks = [];
+      editing = null;
+      save(); render();
+      break;
   }
 }
 
@@ -884,6 +978,7 @@ function bindEvents() {
       state.settings[input.dataset.setting] = input.value;
       save();
       renderGauge();
+      renderMonthProgress();
     });
   });
 

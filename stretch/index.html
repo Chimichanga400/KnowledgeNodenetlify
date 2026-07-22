@@ -70,13 +70,13 @@
     <!-- PLAN -->
     <section id="tab-plan" class="tab">
       <div class="card">
-        <h2>Your plan</h2>
+        <h2>Monthly budget</h2>
         <div class="grid2">
-          <label>Budget (R)
-            <input id="in-budget" type="number" inputmode="decimal" min="0" placeholder="1500" data-setting="budget" />
+          <label>Monthly budget (R)
+            <input id="in-budget" type="number" inputmode="decimal" min="0" placeholder="6000" data-setting="budget" />
           </label>
-          <label>Days
-            <input id="in-days" type="number" inputmode="numeric" min="1" max="31" placeholder="7" data-setting="days" />
+          <label>Weeks in month
+            <input id="in-weeks" type="number" inputmode="numeric" min="1" max="6" placeholder="4" data-setting="weeks" />
           </label>
           <label>Adults
             <input id="in-adults" type="number" inputmode="numeric" min="0" max="20" placeholder="2" data-setting="adults" />
@@ -86,10 +86,11 @@
           </label>
         </div>
         <div id="gauge" class="gauge hidden"></div>
-        <button id="btn-build" class="btn-big" data-action="build">Build my plan</button>
+        <button id="btn-build" class="btn-big" data-action="build">Build this week's plan</button>
         <p id="err-build" class="err hidden"></p>
       </div>
 
+      <div id="month-progress"></div>
       <div id="plan-result"></div>
 
       <details class="card advanced">
