@@ -5,8 +5,8 @@
   "start_url": "/stretch/",
   "scope": "/stretch/",
   "display": "standalone",
-  "background_color": "#F4F1EA",
-  "theme_color": "#F4F1EA",
+  "background_color": "#09090b",
+  "theme_color": "#09090b",
   "orientation": "portrait",
   "icons": [
     {
@@ -16,5 +16,9 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["food", "finance", "shopping"]
+  "categories": [
+    "food",
+    "finance",
+    "shopping"
+  ]
 }
